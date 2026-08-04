@@ -1,0 +1,68 @@
+# ============================================================================
+# VeADK config.yaml —— 存放非敏感的结构化配置
+# 说明：嵌套键会被扁平化并转大写，映射为环境变量。
+#   例如 model.agent.name -> MODEL_AGENT_NAME
+#        database.tos.endpoint -> DATABASE_TOS_ENDPOINT
+# 优先级：若 .env 或系统环境已设置同名变量，则此处对应值被忽略。
+# 因此密钥建议放 .env，本文件仅保留非敏感项（可安全提交到 git）。
+# ============================================================================
+
+# 云厂商：volces（默认）或 byteplus
+cloud_provider: volces
+
+model:
+  # Agent 推理模型
+  agent:
+    name: doubao-seed-2-1-pro-260628
+    provider: openai
+    api_base: https://ark.cn-beijing.volces.com/api/v3/
+    # api_key: 建议放 .env 的 MODEL_AGENT_API_KEY，勿写在此文件
+
+  # Embedding 模型（长时记忆 / 知识库检索时使用）
+  embedding:
+    name: doubao-embedding-vision-250615
+    dim: 2048
+    api_base: https://ark.cn-beijing.volces.com/api/v3/
+
+# ---------------------------------------------------------------------------
+# 以下均为可选：按需取消注释并填写。密钥仍建议走 .env。
+# ---------------------------------------------------------------------------
+
+# database:
+#   # 对象存储 TOS（附件 / 产物上传）
+#   tos:
+#     endpoint: tos-cn-beijing.volces.com
+#     region: cn-beijing
+#     bucket: veadk-default-bucket
+#
+#   # 短时记忆 -> MySQL
+#   mysql:
+#     host: ""
+#     user: ""
+#     database: ""
+#     charset: utf8
+#
+#   # 会话缓存 -> Redis
+#   redis:
+#     host: ""
+#     port: 6379
+#     db: 0
+#
+#   # 向量记忆 -> Milvus
+#   milvus:
+#     uri: ""
+#     db_name: default
+#
+#   # 知识库 -> Viking Knowledgebase
+#   viking:
+#     project: default
+#     region: cn-beijing
+
+# observability:
+#   opentelemetry:
+#     trace_content: true
+#     apmplus:
+#       endpoint: http://apmplus-cn-beijing.volces.com:4317
+#       service_name: veadk_tracing
+#     cozeloop:
+#       endpoint: https://api.coze.cn/v1/loop/opentelemetry/v1/traces

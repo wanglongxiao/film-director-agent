@@ -1,0 +1,15 @@
+# TEMPORARY pin — remove once the base image ships a coherent newer stack.
+#
+# Why the versions are pinned instead of left bare:
+#   The cloud base image pre-installs an older veadk / google-adk / agentkit,
+#   and `uv pip install` does NOT upgrade an unpinned dep that is "already
+#   satisfied". A bare `veadk-python` therefore keeps the baked google-adk
+#   1.23.0, which predates `google.adk.skills` (added in 1.28.0) — so
+#   `from google.adk.skills import ...` fails at runtime with ModuleNotFound.
+#
+#   Pinning veadk-python>=1.0.3 forces google-adk>=1.32 (skills present), and
+#   agentkit-sdk-python>=0.7.10 is the first release that tolerates the newer
+#   Starlette that ships with it (older agentkit crashes on `router.on_startup`).
+#   This exact pair is verified end-to-end on the cloud runtime.
+veadk-python>=1.0.3
+agentkit-sdk-python>=0.7.10
