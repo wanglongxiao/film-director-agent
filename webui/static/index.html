@@ -77,6 +77,27 @@
   .hint { max-width: 860px; margin: 6px auto 0; font-size: 11px; color: var(--muted); }
   .blink::after { content: "▋"; animation: b 1s steps(2) infinite; color: var(--accent); }
   @keyframes b { 0%,100%{opacity:1} 50%{opacity:0} }
+  /* Agent 生成的文件（图片/视频/文档）附件 */
+  .attachments { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+  .attachments:empty { display: none; }
+  .att-img { max-width: 100%; border-radius: 10px; border: 1px solid var(--border); cursor: zoom-in; }
+  .att-video { max-width: 100%; border-radius: 10px; border: 1px solid var(--border); background: #000; }
+  .att-doc {
+    display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
+  }
+  .att-doc .icon { font-size: 22px; }
+  .att-doc .info { flex: 1; min-width: 0; }
+  .att-doc .fname { font-size: 13px; color: var(--text); word-break: break-all; }
+  .att-doc .ftype { font-size: 11px; color: var(--muted); }
+  .att-doc a, .att-doc button {
+    color: #fff; text-decoration: none; font-size: 12px; padding: 6px 10px;
+    border-radius: 8px; background: var(--accent-2); white-space: nowrap;
+    cursor: pointer; font-family: inherit; line-height: 1.4;
+  }
+  .att-doc a.secondary, .att-doc button.secondary { background: var(--panel); border: 1px solid var(--border); color: var(--text); }
+  .att-doc iframe { width: 100%; height: 460px; border: 1px solid var(--border); border-radius: 8px; }
+  .doc-preview { margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -122,15 +143,71 @@ function addMessage(role) {
   meta.className = "meta";
   const bubble = document.createElement("div");
   bubble.className = "bubble";
+  const attachments = document.createElement("div");
+  attachments.className = "attachments";
   body.appendChild(meta);
   body.appendChild(bubble);
+  body.appendChild(attachments);
   msg.appendChild(avatar);
   msg.appendChild(body);
   messagesEl.appendChild(msg);
   scrollDown();
-  return { msg, meta, bubble };
+  return { msg, meta, bubble, attachments };
 }
 function scrollDown() { const m = document.querySelector("main"); m.scrollTop = m.scrollHeight; }
+
+// 渲染 Agent 生成的文件：图片直接显示、视频可播放、文档预览/下载
+function renderFile(container, f) {
+  if (f.kind === "image") {
+    const a = document.createElement("a");
+    a.href = f.url; a.target = "_blank"; a.rel = "noopener";
+    const img = document.createElement("img");
+    img.className = "att-img"; img.src = f.url; img.alt = f.name || "image";
+    img.loading = "lazy";
+    a.appendChild(img); container.appendChild(a);
+  } else if (f.kind === "video") {
+    const v = document.createElement("video");
+    v.className = "att-video"; v.src = f.url; v.controls = true; v.preload = "metadata";
+    v.playsInline = true;
+    container.appendChild(v);
+  } else if (f.kind === "doc") {
+    const card = document.createElement("div");
+    card.className = "att-doc";
+    const icons = { pdf: "📕", docx: "📘", pptx: "📙", html: "🌐" };
+    card.innerHTML =
+      '<div class="icon">' + (icons[f.fmt] || "📄") + '</div>' +
+      '<div class="info"><div class="fname"></div>' +
+      '<div class="ftype">' + (f.fmt || "").toUpperCase() + ' 文档</div></div>';
+    card.querySelector(".fname").textContent = f.name || "document";
+    // PDF/HTML 提供内联预览按钮；所有文档都提供下载
+    const canPreview = f.fmt === "pdf" || f.fmt === "html";
+    if (canPreview) {
+      const prev = document.createElement("button");
+      prev.type = "button";
+      prev.textContent = "预览"; prev.className = "secondary";
+      const wrap = document.createElement("div");
+      wrap.className = "doc-preview";
+      prev.addEventListener("click", (e) => {
+        e.preventDefault();
+        if (wrap.dataset.open === "1") { wrap.innerHTML = ""; wrap.dataset.open = "0"; prev.textContent = "预览"; return; }
+        const ifr = document.createElement("iframe");
+        ifr.src = f.url; wrap.appendChild(ifr); wrap.dataset.open = "1"; prev.textContent = "收起"; scrollDown();
+      });
+      card.appendChild(prev);
+      const dl = document.createElement("a");
+      dl.textContent = "下载"; dl.href = f.url + "&download=1"; dl.setAttribute("download", f.name || "");
+      card.appendChild(dl);
+      container.appendChild(card);
+      container.appendChild(wrap);
+    } else {
+      const dl = document.createElement("a");
+      dl.textContent = "下载"; dl.href = f.url; dl.setAttribute("download", f.name || "");
+      card.appendChild(dl);
+      container.appendChild(card);
+    }
+  }
+  scrollDown();
+}
 
 async function loadConfig() {
   const r = await fetch("/api/config");
@@ -176,6 +253,7 @@ async function send() {
   let thoughtText = "";
   let thoughtEl = null;
   const seenTools = new Set();
+  const seenFiles = new Set();
 
   try {
     const resp = await fetch("/api/chat", {
@@ -215,6 +293,9 @@ async function send() {
         } else if (ev.type === "tool_call") {
           const key = "call:" + ev.name;
           if (!seenTools.has(key)) { seenTools.add(key); asst.meta.appendChild(chipFor("🔧 " + ev.name)); }
+        } else if (ev.type === "file") {
+          const key = "file:" + (ev.url || "") + (ev.name || "");
+          if (!seenFiles.has(key)) { seenFiles.add(key); renderFile(asst.attachments, ev); }
         } else if (ev.type === "error") {
           asst.bubble.classList.remove("blink");
           mainText += (mainText ? "\n\n" : "") + "⚠️ " + ev.error;
@@ -228,7 +309,10 @@ async function send() {
     asst.bubble.textContent = "网络错误：" + e;
   } finally {
     asst.bubble.classList.remove("blink");
-    if (!mainText) asst.bubble.textContent = "(无文本输出)";
+    if (!mainText) {
+      if (seenFiles.size > 0) { asst.bubble.style.display = "none"; }
+      else { asst.bubble.textContent = "(无文本输出)"; }
+    }
     busy = false; sendBtn.disabled = false; inputEl.focus();
   }
 }
