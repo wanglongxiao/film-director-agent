@@ -23,17 +23,27 @@
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
   }
   header {
-    display: flex; align-items: center; gap: 16px; padding: 12px 20px;
+    display: flex; align-items: center; gap: 12px; padding: 12px 20px;
     background: var(--panel); border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
   }
   header h1 { font-size: 16px; margin: 0; font-weight: 600; }
   header .logo {
     width: 30px; height: 30px; border-radius: 8px;
     background: linear-gradient(135deg, var(--accent), var(--accent-2));
     display: grid; place-items: center; font-size: 16px;
+    flex-shrink: 0;
   }
+  header .expand-btn-header {
+    padding: 6px 10px; font-size: 12px;
+    background: var(--panel-2); border: 1px solid var(--border);
+    color: var(--text); border-radius: 8px; cursor: pointer;
+    flex-shrink: 0;
+  }
+  header .expand-btn-header:hover { background: var(--bg); border-color: var(--accent); }
+  body.sidebar-open header .expand-btn-header { display: none; }
   .spacer { flex: 1; }
-  .controls { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+  .controls { display: flex; align-items: center; gap: 10px; font-size: 13px; flex-wrap: wrap; }
   select, button {
     background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
     border-radius: 8px; padding: 6px 10px; font-size: 13px; cursor: pointer;
@@ -48,7 +58,7 @@
   .sidebar {
     width: 244px; flex-shrink: 0; background: var(--panel);
     border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0;
-    transition: width 0.2s ease, border-right-width 0.2s ease;
+    transition: width 0.2s ease, border-right-width 0.2s ease, transform 0.2s ease;
     overflow: hidden;
   }
   .sidebar.collapsed {
@@ -76,15 +86,10 @@
   .session-del:hover { color: #f85149; background: var(--bg); }
   .sidebar-foot { padding: 8px 12px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--border); }
   .content { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
-  .expand-btn {
-    position: absolute; top: 12px; left: 12px; z-index: 5;
-    padding: 6px 12px; font-size: 12px;
-    background: var(--panel); border: 1px solid var(--border);
-    color: var(--text); border-radius: 8px; cursor: pointer;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  .sidebar-backdrop {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+    z-index: 9; opacity: 0; transition: opacity 0.2s ease;
   }
-  .expand-btn:hover { background: var(--panel-2); border-color: var(--accent); }
-  .sidebar:not(.collapsed) ~ .content .expand-btn { display: none; }
 
   main { flex: 1; overflow-y: auto; padding: 20px; }
   .wrap { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
@@ -149,12 +154,69 @@
   .att-doc a.secondary, .att-doc button.secondary { background: var(--panel); border: 1px solid var(--border); color: var(--text); }
   .att-doc iframe { width: 100%; height: 460px; border: 1px solid var(--border); border-radius: 8px; }
   .doc-preview { margin-top: 8px; }
-  @media (max-width: 720px) { .sidebar:not(.collapsed) { width: 168px; } }
+
+  /* ============ 响应式：平板 (<=900px) ============ */
+  @media (max-width: 900px) {
+    header { padding: 10px 14px; gap: 10px; }
+    header h1 { font-size: 15px; }
+    main { padding: 14px; }
+    footer { padding: 10px 14px; }
+    .att-doc iframe { height: 360px; }
+  }
+
+  /* ============ 响应式：手机 (<=640px) ============ */
+  @media (max-width: 640px) {
+    header { padding: 8px 12px; gap: 8px; }
+    header h1 { font-size: 14px; }
+    .spacer { display: none; }
+    .controls { width: 100%; justify-content: flex-start; gap: 8px; font-size: 12px; }
+    .controls label[for="target"] { display: none; }
+    header .expand-btn-header { padding: 5px 8px; font-size: 12px; }
+
+    main { padding: 10px; }
+    .wrap { gap: 10px; }
+    .msg { gap: 8px; }
+    .msg .avatar { width: 26px; height: 26px; font-size: 12px; border-radius: 6px; }
+    .msg .bubble { padding: 8px 10px; font-size: 13px; border-radius: 10px; }
+    .chip { font-size: 10px; padding: 2px 6px; }
+
+    footer { padding: 8px 10px; }
+    .composer { gap: 6px; }
+    textarea { font-size: 15px; padding: 8px 10px; max-height: 120px; }
+    .send { padding: 8px 12px; height: 40px; font-size: 13px; }
+    .hint { font-size: 10px; }
+
+    /* 侧栏在手机上改为覆盖层 (drawer) */
+    .sidebar {
+      position: fixed; top: 0; left: 0; bottom: 0;
+      width: 84vw; max-width: 300px; z-index: 10;
+      box-shadow: 4px 0 16px rgba(0,0,0,0.4);
+      border-right: 1px solid var(--border);
+    }
+    .sidebar.collapsed {
+      transform: translateX(-100%);
+      width: 84vw; max-width: 300px;
+      border-right-width: 1px;
+    }
+    body.sidebar-open .sidebar-backdrop { display: block; opacity: 1; }
+
+    .att-doc { flex-wrap: wrap; }
+    .att-doc .info { flex: 1 1 100%; order: 1; }
+    .att-doc .icon { order: 0; }
+    .att-doc a, .att-doc button { order: 2; }
+    .att-doc iframe { height: 300px; }
+  }
+
+  /* ============ 响应式：超窄 (<=360px) ============ */
+  @media (max-width: 360px) {
+    header h1 { display: none; }
+  }
 </style>
 </head>
 <body>
 <header>
   <div class="logo">🎬</div>
+  <button id="expandSidebar" class="expand-btn-header" title="展开会话栏">☰ 会话</button>
   <h1>director-agent · 导演助手</h1>
   <div class="spacer"></div>
   <div class="controls">
@@ -173,8 +235,8 @@
     <div class="session-list" id="sessionList"></div>
     <div class="sidebar-foot">历史会话保存在本地浏览器，最多保留 20 个</div>
   </aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
   <div class="content">
-    <button id="expandSidebar" class="expand-btn" title="展开会话栏">☰ 展开会话</button>
     <main>
       <div class="wrap" id="messages"></div>
     </main>
@@ -549,12 +611,15 @@ $("clearAll").addEventListener("click", clearAllSessions);
 /* ============ 侧栏折叠 / 展开 ============ */
 const SIDEBAR_KEY = "awdir_sidebar_open_v1";
 const sidebarEl = $("sidebar");
+const backdropEl = $("sidebarBackdrop");
 function setSidebar(open) {
   sidebarEl.classList.toggle("collapsed", !open);
+  document.body.classList.toggle("sidebar-open", open);
   try { localStorage.setItem(SIDEBAR_KEY, open ? "1" : "0"); } catch (e) {}
 }
 $("expandSidebar").addEventListener("click", () => setSidebar(true));
 $("collapseSidebar").addEventListener("click", () => setSidebar(false));
+backdropEl.addEventListener("click", () => setSidebar(false));
 // 默认闭合：仅当用户上次显式展开过，才恢复展开
 try {
   if (localStorage.getItem(SIDEBAR_KEY) === "1") setSidebar(true);
