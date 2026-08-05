@@ -1,9 +1,11 @@
-# aw-director-agent · 导演助手
+# film-director-agent · 导演助手
+
+> 仓库：**[github.com/wanglongxiao/film-director-agent](https://github.com/wanglongxiao/film-director-agent)** · 在线 Demo：**[VeFaaS Web UI](https://s9tgaudevr5vp3i737sc8.apigateway-cn-beijing.volceapi.com)**
 
 一个基于 [VeADK](https://github.com/volcengine/veadk-python)（Volcengine Agent
 Development Kit）构建、以 **AgentKit Runtime** 形式发布的「导演助手」智能体。它把
 一个粗略想法一路推到「可拍摄套件」——基调概念、角色、大纲、分集、分镜、风格化关键帧、
-预演视频——同时解决长文本生成的实际痛点（上下文爆炸、MAX_TOKENS 半路截断、工具失败、
+预演视频——同时解决长文本生成的实际痛点（上下文爆炸、MAX\_TOKENS 半路截断、工具失败、
 配额抖动）。
 
 提供两种入口：
@@ -15,42 +17,39 @@ Development Kit）构建、以 **AgentKit Runtime** 形式发布的「导演助�
   HTML/CSS/JS 前端），可连本地 ADK 服务或已部署的云端 Runtime，API Key
   在服务端保管，可部署到**火山引擎 VeFaaS** 作为 Serverless 应用。
 
-> 云端 AgentKit Runtime 沿用历史名称 `veadk-demo`（网关域名保持稳定）；仓库
-> 与本地工程更名为 `aw-director-agent`。
-
 **English:** [README.md](README.md)
 
----
+***
 
 ## 1. 解决什么问题
 
 导演一部视听作品是**长流程、多模态、多工具串联**的活。一次性 LLM 调用做不到——
 你需要：
 
-| 痛点 | 朴素 LLM 聊天为何崩 | aw-director-agent 如何解决 |
-|---|---|---|
-| 长文本生成在 MAX_TOKENS 处被截断 | 回复半句话结束，无法续写 | 单轮输出预算 + 自动续写 + 本地 SQLite checkpoint |
-| 聊天历史膨胀 → 上下文溢出 | 几轮后 LLM 400 / OOM | ADK `App` 滑动窗口压缩（token & 事件阈值触发） |
-| 进程重启忘光设定 | 用户每次都要重新粘贴 | ShortTermMemory 后端 SQLite（重启不丢） |
-| 工具繁多：搜索、图像、视频、代码、文档 | 手工串工具、模型经常撞额度 | 统一工具集 + 图/视频模型「自动降级链」 |
-| 用户要**文件**而不是文字描述 | LLM 只会「描述」图片/文档 | 真实生成 JPG / MP4 / DOCX / PDF / PPTX / HTML，可在 Web UI 内直接查看/播放/下载 |
-| 浏览器泄露 API Key | 静态页面里明文粘贴 key | BFF（服务端）持有 key，浏览器只见同源 `/api/*` |
+| 痛点                      | 朴素 LLM 聊天为何崩      | film-director-agent 如何解决                                       |
+| ----------------------- | ----------------- | --------------------------------------------------------------- |
+| 长文本生成在 MAX\_TOKENS 处被截断 | 回复半句话结束，无法续写      | 单轮输出预算 + 自动续写 + 本地 SQLite checkpoint                            |
+| 聊天历史膨胀 → 上下文溢出          | 几轮后 LLM 400 / OOM | ADK `App` 滑动窗口压缩（token & 事件阈值触发）                                |
+| 进程重启忘光设定                | 用户每次都要重新粘贴        | ShortTermMemory 后端 SQLite（重启不丢）                                 |
+| 工具繁多：搜索、图像、视频、代码、文档     | 手工串工具、模型经常撞额度     | 统一工具集 + 图/视频模型「自动降级链」                                           |
+| 用户要**文件**而不是文字描述        | LLM 只会「描述」图片/文档   | 真实生成 JPG / MP4 / DOCX / PDF / PPTX / HTML，可在 Web UI 内直接查看/播放/下载 |
+| 浏览器泄露 API Key           | 静态页面里明文粘贴 key     | BFF（服务端）持有 key，浏览器只见同源 `/api/*`                                 |
 
----
+***
 
 ## 2. 系统功能与卖点
 
 ### 2.1 Agent 能力矩阵
 
-| 能力 | 对应工具 | 后端 |
-|---|---|---|
-| 网页搜索 / 拉取 / 链接阅读 | `web_search` / `web_fetch` / `link_reader` | VeADK 内置工具 |
-| 分镜 / 海报 / 关键帧图像生成 | `image_generate` | 豆包 **Seedream** 系列（自动降级链） |
-| 预演 / 预告视频生成 | `video_generate` | 豆包 **Seedance** 系列（自动降级链） |
-| 真实代码执行 | `run_code` / `coding` | AgentKit 沙箱工具（CodeEnv） |
-| Word / PDF / PPT / HTML **生成 + 读回** | `create_document` / `read_document` | 同一个沙箱，使用镜像内 `python-docx` / `python-pptx` / `pypdf` / `weasyprint` |
-| 剧本圣经知识库 | `save_local_knowledge` / `search_local_knowledge` | **本地 SQLite**（不走云端向量检索） |
-| 稳定长文本输出 | `auto_continue_generation` | 本地 SQLite checkpoint + 续写引导 |
+| 能力                                  | 对应工具                                              | 后端                                                                 |
+| ----------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------ |
+| 网页搜索 / 拉取 / 链接阅读                    | `web_search` / `web_fetch` / `link_reader`        | VeADK 内置工具                                                         |
+| 分镜 / 海报 / 关键帧图像生成                   | `image_generate`                                  | 豆包 **Seedream** 系列（自动降级链）                                          |
+| 预演 / 预告视频生成                         | `video_generate`                                  | 豆包 **Seedance** 系列（自动降级链）                                          |
+| 真实代码执行                              | `run_code` / `coding`                             | AgentKit 沙箱工具（CodeEnv）                                             |
+| Word / PDF / PPT / HTML **生成 + 读回** | `create_document` / `read_document`               | 同一个沙箱，使用镜像内 `python-docx` / `python-pptx` / `pypdf` / `weasyprint` |
+| 剧本圣经知识库                             | `save_local_knowledge` / `search_local_knowledge` | **本地 SQLite**（不走云端向量检索）                                            |
+| 稳定长文本输出                             | `auto_continue_generation`                        | 本地 SQLite checkpoint + 续写引导                                        |
 
 系统指令中的强约束：
 
@@ -78,31 +77,58 @@ Development Kit）构建、以 **AgentKit Runtime** 形式发布的「导演助�
   - `localStorage` 持久化，刷新/重开浏览器不丢。
 - **密钥隔离**：API Key 从不下发到浏览器，前端只跟同源 `/api/*` 通信。
 
----
+***
 
 ## 3. Demo 截屏
 
-截图放在 [`docs/screenshots/`](docs/screenshots/) 目录下。使用同名文件替换后即可自动渲染：
+以下所有截图均来自部署好的 Web UI（`webui/server.py` 的 BFF + `webui/static/index.html`
+静态前端），后端可连本地 ADK 或云端 AgentKit Runtime。
 
-| # | 页面 | 路径 |
-|---|---|---|
-| 1 | Web UI 总览（聊天 + 历史侧栏） | `docs/screenshots/01-overview.png` |
-| 2 | 流式回复（思考 + 工具 chip） | `docs/screenshots/02-streaming.png` |
-| 3 | 图片附件内联展示（Seedream） | `docs/screenshots/03-image.png` |
-| 4 | 视频播放（Seedance） | `docs/screenshots/04-video.png` |
-| 5 | PDF 预览 + 下载卡片 | `docs/screenshots/05-pdf.png` |
-| 6 | 历史侧栏（切换 / 删除 / 清空） | `docs/screenshots/06-history.png` |
+### 3.1 Web UI 总览——聊天 + 历史侧栏
 
-```
 ![Web UI 总览](docs/screenshots/01-overview.png)
-![流式回复](docs/screenshots/02-streaming.png)
-![图片附件](docs/screenshots/03-image.png)
-![视频播放](docs/screenshots/04-video.png)
-![PDF 预览与下载](docs/screenshots/05-pdf.png)
-![历史侧栏](docs/screenshots/06-history.png)
-```
 
----
+两栏布局：左侧是 LRU 管理的 20 条会话历史（切换 / 逐一删除 / 一键清空），右侧是流式
+聊天区。顶部单选可切换 target（本地 vs 云端）。
+
+### 3.2 流式回复（思考 + 工具 chip）
+
+![流式回复](docs/screenshots/02-streaming.png)
+
+SSE 流式返回 `text` / `thought` / `tool_call` / `file` 事件。前端把模型的思考折叠成
+可展开块，每次工具调用渲染成紧凑的 chip，可以直接看到 sandbox 触发的动作。
+
+### 3.3 图片附件内联展示（Seedream）
+
+![图片附件](docs/screenshots/03-image.png)
+
+`image_generate` 返回 Seedream 渲染成品的公网 TOS URL——分镜格、关键帧、海报。BFF
+透传给 UI，UI 内联为附件卡片并提供一键下载。
+
+### 3.4 视频播放（Seedance）
+
+![视频播放](docs/screenshots/04-video.png)
+
+`video_generate` 返回 Seedance 渲染成品的公网 URL，直接挂载为 `<video controls>`
+元素，无需离开聊天即可预览预演片段 / teaser。
+
+### 3.5 PDF 预览 + 下载卡片
+
+![PDF 预览与下载](docs/screenshots/05-pdf.png)
+
+`create_document` 在 AgentKit 沙箱里写出 docx / pdf / pptx / html
+（`/home/gem/veadk_docs/*`）。因为沙箱文件没有公网 URL，BFF 的 `/api/file` 端点
+通过签名的 AgentKit RunCode 把字节流拉回来——前端呈现预览 + 下载按钮。
+
+### 3.6 历史侧栏——切换 / 删除 / 清空
+
+![历史侧栏](docs/screenshots/06-history.png)
+
+会话持久化在 `localStorage["awdir_sessions_v1"]`（上限 20，LRU 淘汰）。标题自动从
+首条用户消息前 24 字截取；`renderMessage()` 会在切换回旧会话时完整还原附件、
+思考块和工具 chip。
+
+***
 
 ## 4. 使用的 Agent 框架与模型
 
@@ -122,21 +148,21 @@ Development Kit）构建、以 **AgentKit Runtime** 形式发布的「导演助�
 
 ### 4.2 LLM 与多模态模型
 
-| 角色 | 默认模型 | 使用场景 |
-|---|---|---|
-| 推理 / 规划 | 火山 Ark 上的 `doubao-seed-1-6-250615`（通过固定推理接入点访问，默认 `ep-20260804114747-mc7ct`） | Agent 大脑 |
-| 文生图（主模型） | `doubao-seedream-5-0-pro-260628` | `image_generate` — 降级链：`seedream-5-0-260128` / `4-5-251128` / `4-0-250828` |
-| 文生视频（主模型） | `doubao-seedance-2-0-260128` | `video_generate` — 降级链：`seedance-1-5-pro-251215` / `1-0-pro-250528` |
+| 角色        | 默认模型                                   | 使用场景                                                                       |
+| --------- | -------------------------------------- | -------------------------------------------------------------------------- |
+| 推理 / 规划   | 火山 Ark 上的 `doubao-seed-2-1-pro-260628` | Agent 大脑                                                                   |
+| 文生图（主模型）  | `doubao-seedream-5-0-pro-260628`       | `image_generate` — 降级链：`seedream-5-0-260128` / `4-5-251128` / `4-0-250828` |
+| 文生视频（主模型） | `doubao-seedance-2-0-260128`           | `video_generate` — 降级链：`seedance-1-5-pro-251215` / `1-0-pro-250528`        |
 
 三个角色共享**一把火山凭证**：本地 AK/SK 会自动派生出模型访问权限；云端 Runtime
 上模型凭证由平台自动提供，无需额外配置。
 
----
+***
 
 ## 5. 程序模块架构
 
 ```
-aw-director-agent/
+film-director-agent/
 ├── main.py                         # AgentKit Runtime 入口（ADK App + 压缩 + STM + 服务）
 ├── assistant/                      # Agent 本体、工具与本地持久化
 │   ├── __init__.py                 # 导出 root_agent
@@ -190,12 +216,12 @@ aw-director-agent/
 
 1. `before_model_callback` 对每轮设定固定的 `max_output_tokens`；
 2. `after_model_callback` 捕获 `finish_reason=MAX_TOKENS` 并记录尾部；
-3. `auto_continue_generation` 从 [continuation_store.py](assistant/continuation_store.py)
+3. `auto_continue_generation` 从 [continuation\_store.py](assistant/continuation_store.py)
    读回最近 checkpoint，引导模型从「上一段停止的位置」续写，不重复；
 4. App 级 `EventsCompactionConfig` 在滑动窗口或 token 阈值触发时压缩老事件，
    把 prompt 控制在可用范围内。
 
----
+***
 
 ## 6. 配置
 
@@ -206,7 +232,7 @@ aw-director-agent/
 1. **AK/SK** —— <https://console.volcengine.com/iam/keymanage/> → 新建访问密钥。
    记下 Access Key ID + Secret Access Key。本地开发**只需要这一项**。
 2. **Ark 豆包推理接入点** —— <https://console.volcengine.com/ark>
-   → 在线推理接入点 → 创建，选择推理模型（豆包 Seed 1.6 或同等）。
+   → 在线推理接入点 → 创建，选择推理模型（豆包 Seed 2.1 或同等）。
    记下 endpoint id（形如 `ep-YYYYMMDDhhmmss-xxxxx`），填入 `.env` 的
    `MODEL_AGENT_NAME`。*（云端 Runtime 上无需此步——凭证由平台自动提供。）*
 3. **AgentKit 沙箱工具** —— <https://console.volcengine.com/agentkit>
@@ -262,7 +288,7 @@ FEISHU_APP_SECRET=…
 - Web UI 部署到 VeFaaS 时，`.env` 作为**函数环境变量**在部署时注入，代码
   bundle 里不包含 `.env`。
 
----
+***
 
 ## 7. 运行与发布
 
@@ -312,14 +338,15 @@ CI/CD：向 `main` 推送时会触发 [.github/workflows/deploy.yml](.github/wor
 .venv/bin/python webui/deploy_vefaas.py
 ```
 
-- 首次运行：创建 VeFaaS 应用 `aw-director-webui`。
+- 首次运行：创建 VeFaaS 应用 `aw-director-webui`（沿用历史应用名——网关域名早于
+  仓库改名之前就已上线；可用 `WEBUI_APP_NAME` 覆盖）。
 - 后续运行：`update_application_code_bundle` 上传新 bundle 到已有应用（URL 稳定，
   函数环境变量保留）。
 - `.env` 会以函数环境变量注入 —— 部署后的函数 env 含
   `VOLCENGINE_ACCESS_KEY/SECRET_KEY`、`AGENTKIT_TOOL_ID*`、`CLOUD_AGENT_*`，
   这样 `/api/file`（需要用火山 SigV4 签名调 RunCode）在云端也能正常工作。
 
----
+***
 
 ## 8. FAQ
 
@@ -327,7 +354,7 @@ CI/CD：向 `main` 推送时会触发 [.github/workflows/deploy.yml](.github/wor
 不用。AK/SK 会自动派生模型访问权限。只有当你想钉死一把特定的凭证时，才需要覆盖
 `MODEL_*_API_KEY`。
 
-**Q：报错 `You've reached the limit on the session number of tool`。**
+**Q：报错** **`You've reached the limit on the session number of tool`。**
 AgentKit 沙箱工具有每个 tool 的会话配额（通常 2 个）。每个不同的
 `UserSessionId` 会占一个槽。用
 `agentkit sandbox delete --tool-id $AGENTKIT_TOOL_ID --sid <id> --force`
@@ -344,7 +371,7 @@ AgentKit 沙箱工具有每个 tool 的会话配额（通常 2 个）。每个�
 浏览器 `localStorage["awdir_sessions_v1"]`。上限 20 条，LRU 顺序，溢出时自动
 淘汰最早的。清除站点数据即重置。
 
----
+***
 
 ## 9. 许可 / 署名
 

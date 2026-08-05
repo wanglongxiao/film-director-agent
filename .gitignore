@@ -16,3 +16,6 @@ assistant/.adk/
 
 # IDE 本地设置
 .vscode/
+
+# macOS Finder 元数据
+.DS_Store

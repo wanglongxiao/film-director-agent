@@ -330,6 +330,17 @@ wheels = [
 ]
 
 [[package]]
+name = "aw-director-agent"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "veadk-python" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "veadk-python", specifier = ">=1.0.9" }]
+
+[[package]]
 name = "beartype"
 version = "0.22.9"
 source = { registry = "https://pypi.org/simple" }
@@ -3323,17 +3334,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/03/18/ccce41535dee1be77
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c7/d5/68e6e9bca63c0badf67002890a46d3784c958de45b65e1275ec583ca1f06/uvicorn-0.52.1-py3-none-any.whl", hash = "sha256:e4403f9d93188cf9d1088e9f40e3acd12630e2df8675316704379a7fc20fff6a", size = 79859, upload-time = "2026-08-01T18:19:29.294Z" },
 ]
-
-[[package]]
-name = "veadk-demo"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "veadk-python" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "veadk-python", specifier = ">=1.0.9" }]
 
 [[package]]
 name = "veadk-python"
