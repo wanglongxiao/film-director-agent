@@ -1,4 +1,9 @@
 #!/bin/bash
+# Copyright (c) 2026 Alex Wang
+# @author Alex Wang <https://github.com/wanglongxiao>
+# @contact https://www.linkedin.com/in/alexwanglx/
+# Open Source Usage: attribution required; preserve this notice in redistributions.
+
 # VeFaaS 原生 python 运行时启动脚本（native-python3.12/v1）。
 # VeFaaS 会以 bundle 根目录为 cwd 执行 ./run.sh，并通过 _FAAS_RUNTIME_PORT 指定监听端口。
 set -e

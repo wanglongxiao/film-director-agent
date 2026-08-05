@@ -1,3 +1,8 @@
+# Copyright (c) 2026 Alex Wang
+# @author Alex Wang <https://github.com/wanglongxiao>
+# @contact https://www.linkedin.com/in/alexwanglx/
+# Open Source Usage: attribution required; preserve this notice in redistributions.
+
 """从 AgentKit sandbox 里把文档文件读成 bytes —— 供 BFF 下载 Agent 生成的 docx/pdf/pptx/html。
 
 背景：

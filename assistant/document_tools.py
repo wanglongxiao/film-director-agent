@@ -1,3 +1,8 @@
+# Copyright (c) 2026 Alex Wang
+# @author Alex Wang <https://github.com/wanglongxiao>
+# @contact https://www.linkedin.com/in/alexwanglx/
+# Open Source Usage: attribution required; preserve this notice in redistributions.
+
 """文档生成/读取工具 —— 在 AgentKit sandbox 中真实生成并读回 word/pdf/ppt/html。
 
 背景与设计取舍：

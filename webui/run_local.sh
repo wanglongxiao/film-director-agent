@@ -1,4 +1,9 @@
 #!/bin/bash
+# Copyright (c) 2026 Alex Wang
+# @author Alex Wang <https://github.com/wanglongxiao>
+# @contact https://www.linkedin.com/in/alexwanglx/
+# Open Source Usage: attribution required; preserve this notice in redistributions.
+
 # 本地调试启动：加载项目 .env（拿到 CLOUD_AGENT_API_KEY 等），
 # 并强制开启「本地」目标，方便在本地同时调试 本地 Agent(:8000) 与 云端 Agent。
 #

@@ -1,3 +1,8 @@
+# Copyright (c) 2026 Alex Wang
+# @author Alex Wang <https://github.com/wanglongxiao>
+# @contact https://www.linkedin.com/in/alexwanglx/
+# Open Source Usage: attribution required; preserve this notice in redistributions.
+
 """电影剧本智能助手 —— VeADK Agent（本地持久化 + 多能力工具/技能）。
 
 本模块只暴露 `root_agent`（一个纯 VeADK Agent），不引入 server / agentkit，

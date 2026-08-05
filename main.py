@@ -1,3 +1,8 @@
+# Copyright (c) 2026 Alex Wang
+# @author Alex Wang <https://github.com/wanglongxiao>
+# @contact https://www.linkedin.com/in/alexwanglx/
+# Open Source Usage: attribution required; preserve this notice in redistributions.
+
 """movie-script-agent — 以 AgentKit Runtime 形式服务的电影剧本智能助手。
 
 装配三件事，确保 Agent 执行永不超出模型上下文限制：
