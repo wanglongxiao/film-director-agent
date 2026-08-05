@@ -13,3 +13,6 @@ deploy.log
 .trae/
 assistant/.adk/
 .agentkit/sandbox/
+
+# IDE 本地设置
+.vscode/

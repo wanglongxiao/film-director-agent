@@ -36,6 +36,34 @@
   .status { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
   .dot.ok { background: #3fb950; } .dot.bad { background: #f85149; }
+
+  /* 主体布局：左侧历史会话栏 + 右侧对话区 */
+  .layout { flex: 1; display: flex; min-height: 0; }
+  .sidebar {
+    width: 244px; flex-shrink: 0; background: var(--panel);
+    border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0;
+  }
+  .sidebar-head { display: flex; gap: 8px; padding: 12px; border-bottom: 1px solid var(--border); }
+  .sidebar-head .new { flex: 1; font-weight: 600; }
+  .sidebar-head .clear { flex: 0 0 auto; }
+  .sidebar-head .clear:hover { color: #f85149; border-color: #f85149; }
+  .session-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+  .session-item {
+    display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-radius: 8px;
+    cursor: pointer; color: var(--text); font-size: 13px; border: 1px solid transparent;
+  }
+  .session-item:hover { background: var(--panel-2); }
+  .session-item.active { background: var(--panel-2); border-color: var(--border); }
+  .session-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .session-del {
+    background: transparent; border: none; color: var(--muted); padding: 2px 6px;
+    border-radius: 6px; font-size: 15px; line-height: 1; opacity: 0; flex: 0 0 auto;
+  }
+  .session-item:hover .session-del, .session-item.active .session-del { opacity: 1; }
+  .session-del:hover { color: #f85149; background: var(--bg); }
+  .sidebar-foot { padding: 8px 12px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--border); }
+  .content { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
   main { flex: 1; overflow-y: auto; padding: 20px; }
   .wrap { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
   .msg { display: flex; gap: 10px; }
@@ -63,6 +91,7 @@
     color: var(--muted); font-size: 13px; white-space: pre-wrap; margin-top: 6px;
     border-left: 2px solid var(--border); padding-left: 10px;
   }
+  .empty { color: var(--muted); font-size: 14px; text-align: center; margin-top: 40px; }
   footer { border-top: 1px solid var(--border); background: var(--panel); padding: 12px 20px; }
   .composer { max-width: 860px; margin: 0 auto; display: flex; gap: 10px; align-items: flex-end; }
   textarea {
@@ -98,6 +127,7 @@
   .att-doc a.secondary, .att-doc button.secondary { background: var(--panel); border: 1px solid var(--border); color: var(--text); }
   .att-doc iframe { width: 100%; height: 460px; border: 1px solid var(--border); border-radius: 8px; }
   .doc-preview { margin-top: 8px; }
+  @media (max-width: 720px) { .sidebar { width: 168px; } }
 </style>
 </head>
 <body>
@@ -109,30 +139,155 @@
     <label for="target" class="status">目标</label>
     <select id="target"></select>
     <span class="status"><span id="dot" class="dot"></span><span id="statusText">检测中…</span></span>
-    <button id="newChat" title="开启新会话">＋ 新会话</button>
   </div>
 </header>
-<main>
-  <div class="wrap" id="messages"></div>
-</main>
-<footer>
-  <div class="composer">
-    <textarea id="input" rows="1" placeholder="给「导演助手」下达指令，例如：帮我构思一个赛博朋克悬疑短剧的背景与基调…"></textarea>
-    <button class="send" id="send">发送</button>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <button id="newChat" class="new" title="开启新会话">＋ 新会话</button>
+      <button id="clearAll" class="clear" title="清空全部历史会话">🗑 清空</button>
+    </div>
+    <div class="session-list" id="sessionList"></div>
+    <div class="sidebar-foot">历史会话保存在本地浏览器，最多保留 20 个</div>
+  </aside>
+  <div class="content">
+    <main>
+      <div class="wrap" id="messages"></div>
+    </main>
+    <footer>
+      <div class="composer">
+        <textarea id="input" rows="1" placeholder="给「导演助手」下达指令，例如：帮我构思一个赛博朋克悬疑短剧的背景与基调…"></textarea>
+        <button class="send" id="send">发送</button>
+      </div>
+      <div class="hint">Enter 发送 · Shift+Enter 换行 · apikey 由后端保管，不会下发到浏览器</div>
+    </footer>
   </div>
-  <div class="hint">Enter 发送 · Shift+Enter 换行 · apikey 由后端保管，不会下发到浏览器</div>
-</footer>
+</div>
 
 <script>
 const $ = (id) => document.getElementById(id);
 const messagesEl = $("messages");
+const sessionListEl = $("sessionList");
 const targetEl = $("target");
 const inputEl = $("input");
 const sendBtn = $("send");
-let sessionId = "webui-" + Math.random().toString(36).slice(2, 10);
 let busy = false;
 
+/* ============ 历史会话（localStorage） ============ */
+const STORAGE_KEY = "awdir_sessions_v1";
+const MAX_SESSIONS = 20;
+let sessions = [];      // 最近使用在前
+let currentId = null;
+
+function newId() {
+  return "webui-" + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
+}
+function loadSessions() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(arr)) return [];
+    return arr.filter((s) => s && s.id).map((s) => ({
+      id: s.id,
+      title: s.title || "新会话",
+      createdAt: s.createdAt || Date.now(),
+      updatedAt: s.updatedAt || s.createdAt || Date.now(),
+      messages: Array.isArray(s.messages) ? s.messages : [],
+    }));
+  } catch { return []; }
+}
+function saveSessions() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions)); }
+  catch (e) { console.warn("保存历史会话失败：", e); }
+}
+function current() { return sessions.find((s) => s.id === currentId) || null; }
+
+function enforceCap() {
+  // 超过上限时移除最久未使用的（数组尾部）
+  while (sessions.length > MAX_SESSIONS) sessions.pop();
+}
+function createSession() {
+  const s = { id: newId(), title: "新会话", createdAt: Date.now(), updatedAt: Date.now(), messages: [] };
+  sessions.unshift(s);
+  enforceCap();
+  currentId = s.id;
+  saveSessions();
+  renderSessionList();
+  renderMessages();
+  inputEl.focus();
+}
+function touchCurrent() {
+  const s = current();
+  if (!s) return;
+  s.updatedAt = Date.now();
+  // 移到最前，形成 LRU 顺序
+  sessions = [s, ...sessions.filter((x) => x.id !== s.id)];
+  saveSessions();
+  renderSessionList();
+}
+function switchTo(id) {
+  if (busy || id === currentId) return;
+  currentId = id;
+  renderSessionList();
+  renderMessages();
+  inputEl.focus();
+}
+function deleteSession(id) {
+  if (busy) return;
+  const i = sessions.findIndex((s) => s.id === id);
+  if (i < 0) return;
+  sessions.splice(i, 1);
+  if (currentId === id) {
+    if (sessions.length) currentId = sessions[0].id;
+    else { createSession(); return; }
+  }
+  saveSessions();
+  renderSessionList();
+  renderMessages();
+}
+function clearAllSessions() {
+  if (busy) return;
+  if (!confirm("确定清空全部历史会话？此操作不可恢复。")) return;
+  sessions = [];
+  createSession();
+}
+function renderSessionList() {
+  sessionListEl.innerHTML = "";
+  sessions.forEach((s) => {
+    const item = document.createElement("div");
+    item.className = "session-item" + (s.id === currentId ? " active" : "");
+    item.dataset.id = s.id;
+    const title = document.createElement("div");
+    title.className = "session-title";
+    title.textContent = s.title || "新会话";
+    title.title = s.title || "新会话";
+    const del = document.createElement("button");
+    del.className = "session-del"; del.textContent = "×"; del.title = "删除此会话";
+    del.addEventListener("click", (e) => { e.stopPropagation(); deleteSession(s.id); });
+    item.appendChild(title);
+    item.appendChild(del);
+    item.addEventListener("click", () => switchTo(s.id));
+    sessionListEl.appendChild(item);
+  });
+}
+function renderMessages() {
+  messagesEl.innerHTML = "";
+  const s = current();
+  if (!s || !s.messages.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "开始与「导演助手」对话吧 ✦";
+    messagesEl.appendChild(empty);
+    return;
+  }
+  s.messages.forEach(renderMessage);
+}
+
+/* ============ 消息渲染 ============ */
 function addMessage(role) {
+  // 移除空状态提示
+  const empty = messagesEl.querySelector(".empty");
+  if (empty) empty.remove();
   const msg = document.createElement("div");
   msg.className = "msg " + role;
   const avatar = document.createElement("div");
@@ -153,6 +308,26 @@ function addMessage(role) {
   messagesEl.appendChild(msg);
   scrollDown();
   return { msg, meta, bubble, attachments };
+}
+// 从存储的消息对象重建 DOM（切换会话时使用）
+function renderMessage(m) {
+  const nodes = addMessage(m.role);
+  if (m.role === "assistant") {
+    if (m.thought) {
+      const t = document.createElement("details");
+      t.className = "thought";
+      t.innerHTML = '<summary>💭 思考过程</summary><div class="content"></div>';
+      t.querySelector(".content").textContent = m.thought;
+      nodes.bubble.parentNode.insertBefore(t, nodes.bubble);
+    }
+    (m.tools || []).forEach((n) => nodes.meta.appendChild(chipFor("🔧 " + n)));
+    (m.files || []).forEach((f) => renderFile(nodes.attachments, f));
+    if (m.text) nodes.bubble.textContent = m.text;
+    else if ((m.files || []).length) nodes.bubble.style.display = "none";
+    else nodes.bubble.textContent = "(无文本输出)";
+  } else {
+    nodes.bubble.textContent = m.text || "";
+  }
 }
 function scrollDown() { const m = document.querySelector("main"); m.scrollTop = m.scrollHeight; }
 
@@ -245,6 +420,16 @@ async function send() {
   busy = true; sendBtn.disabled = true;
   inputEl.value = ""; inputEl.style.height = "auto";
 
+  const s = current();
+  // 首条用户消息作为会话标题
+  if (!s.title || s.title === "新会话") s.title = message.slice(0, 24) || "新会话";
+  const userMsg = { role: "user", text: message };
+  const asstMsg = { role: "assistant", text: "", thought: "", tools: [], files: [] };
+  s.messages.push(userMsg, asstMsg);
+  touchCurrent();
+
+  const empty = messagesEl.querySelector(".empty");
+  if (empty) empty.remove();
   addMessage("user").bubble.textContent = message;
   const asst = addMessage("assistant");
   asst.bubble.classList.add("blink");
@@ -259,11 +444,12 @@ async function send() {
     const resp = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ target: targetEl.value, message, session_id: sessionId }),
+      body: JSON.stringify({ target: targetEl.value, message, session_id: s.id }),
     });
     if (!resp.ok || !resp.body) {
       asst.bubble.classList.remove("blink");
       asst.bubble.textContent = "请求失败：HTTP " + resp.status;
+      asstMsg.text = asst.bubble.textContent; saveSessions();
       busy = false; sendBtn.disabled = false; return;
     }
     const reader = resp.body.getReader();
@@ -280,9 +466,9 @@ async function send() {
         if (!line) continue;
         let ev; try { ev = JSON.parse(line.slice(5).trim()); } catch { continue; }
         if (ev.type === "text") {
-          mainText += ev.text; asst.bubble.textContent = mainText; scrollDown();
+          mainText += ev.text; asst.bubble.textContent = mainText; asstMsg.text = mainText; scrollDown();
         } else if (ev.type === "thought") {
-          thoughtText += ev.text;
+          thoughtText += ev.text; asstMsg.thought = thoughtText;
           if (!thoughtEl) {
             thoughtEl = document.createElement("details");
             thoughtEl.className = "thought";
@@ -292,14 +478,18 @@ async function send() {
           thoughtEl.querySelector(".content").textContent = thoughtText;
         } else if (ev.type === "tool_call") {
           const key = "call:" + ev.name;
-          if (!seenTools.has(key)) { seenTools.add(key); asst.meta.appendChild(chipFor("🔧 " + ev.name)); }
+          if (!seenTools.has(key)) { seenTools.add(key); asstMsg.tools.push(ev.name); asst.meta.appendChild(chipFor("🔧 " + ev.name)); }
         } else if (ev.type === "file") {
           const key = "file:" + (ev.url || "") + (ev.name || "");
-          if (!seenFiles.has(key)) { seenFiles.add(key); renderFile(asst.attachments, ev); }
+          if (!seenFiles.has(key)) {
+            seenFiles.add(key);
+            asstMsg.files.push({ kind: ev.kind, url: ev.url, name: ev.name, fmt: ev.fmt });
+            renderFile(asst.attachments, ev);
+          }
         } else if (ev.type === "error") {
           asst.bubble.classList.remove("blink");
           mainText += (mainText ? "\n\n" : "") + "⚠️ " + ev.error;
-          asst.bubble.textContent = mainText;
+          asst.bubble.textContent = mainText; asstMsg.text = mainText;
         } else if (ev.type === "done") {
           asst.bubble.classList.remove("blink");
         }
@@ -307,12 +497,15 @@ async function send() {
     }
   } catch (e) {
     asst.bubble.textContent = "网络错误：" + e;
+    asstMsg.text = asst.bubble.textContent;
   } finally {
     asst.bubble.classList.remove("blink");
     if (!mainText) {
       if (seenFiles.size > 0) { asst.bubble.style.display = "none"; }
       else { asst.bubble.textContent = "(无文本输出)"; }
     }
+    asstMsg.text = mainText;
+    saveSessions();
     busy = false; sendBtn.disabled = false; inputEl.focus();
   }
 }
@@ -326,12 +519,18 @@ inputEl.addEventListener("input", () => {
   inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + "px";
 });
 targetEl.addEventListener("change", checkHealth);
-$("newChat").addEventListener("click", () => {
-  sessionId = "webui-" + Math.random().toString(36).slice(2, 10);
-  messagesEl.innerHTML = "";
-  inputEl.focus();
-});
+$("newChat").addEventListener("click", () => { if (!busy) createSession(); });
+$("clearAll").addEventListener("click", clearAllSessions);
 
+// 初始化：加载历史会话或创建首个会话
+sessions = loadSessions();
+if (!sessions.length) {
+  createSession();
+} else {
+  currentId = sessions[0].id;
+  renderSessionList();
+  renderMessages();
+}
 loadConfig();
 </script>
 </body>
