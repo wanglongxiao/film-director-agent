@@ -193,14 +193,18 @@ film-director-agent/
 │   ├── run_local.sh                # Local dev on :8090 (both local + cloud targets)
 │   ├── run.sh                      # VeFaaS runtime entry
 │   └── deploy_vefaas.py            # One-shot VeFaaS deploy (create or update-bundle)
-├── .agentkit/agentkit.yaml         # AgentKit deploy manifest (envs, plugins, runtime spec)
-├── .github/workflows/deploy.yml    # CI: `agentkit deploy` on push to main
 ├── .env.example                    # Placeholder env — copy to .env
 ├── config.yaml                     # VeADK static config (overridable by env)
-├── Dockerfile                      # Runtime image
-├── pyproject.toml / requirements.txt
+├── requirements.txt                # Cloud AgentKit Runtime deps
 └── src/aw_director_agent/          # Console-script entry (project rename bookkeeping)
 ```
+
+> **Not in the public repo (kept locally by `.gitignore`):**
+> `.agentkit/agentkit.yaml`, `.github/workflows/`, `Dockerfile`, `.dockerignore`,
+> `pyproject.toml`, `uv.lock`, `.python-version` — these encode private
+> deploy identifiers and container/CI plumbing specific to the maintainer's
+> environment. You can recreate them for your own fork with
+> `agentkit init` + `uv init`.
 
 ### 5.1 Runtime shape
 
@@ -305,10 +309,11 @@ FEISHU_APP_SECRET=…
   placeholders.
 - API keys travel *server-side* only. The browser talks to same-origin
   `/api/*`; nothing sensitive is ever written to the frontend bundle.
-- CI (`.github/workflows/deploy.yml`) reads AK/SK/Feishu creds from GitHub
-  *repo secrets*, not from committed files.
 - When deploying the Web UI to VeFaaS, `.env` is injected as function
   environment variables at deploy time; it is *not* bundled with the code.
+- The AgentKit deploy manifest and any CI workflow that would carry
+  `AGENTKIT_TOOL_ID*` / gateway ids are kept out of the public repo — see
+  the note under §5 about locally-only files.
 
 ***
 
@@ -347,14 +352,17 @@ export FEISHU_APP_ID=… FEISHU_APP_SECRET=…
 agentkit deploy
 ```
 
-Reads `.agentkit/agentkit.yaml` + `Dockerfile`, builds a cloud image, creates
-or updates the AgentKit runtime, and (because `im.feishu` is enabled in the
-manifest) also wires the Feishu proxy — no extra flags. Redeploying re-uses
-the same domain, so downstream consumers don't need re-configuration.
+This step needs an AgentKit deploy manifest (`.agentkit/agentkit.yaml`) and a
+`Dockerfile`. Neither is shipped in the public repo — they carry environment-
+specific tool ids and gateway details. Recreate them for your own fork via
+`agentkit init` (VeADK / AgentKit CLI), then customise:
 
-Continuous delivery: pushing to `main` triggers
-[.github/workflows/deploy.yml](.github/workflows/deploy.yml) which runs
-`agentkit deploy` with repo secrets.
+- keep `plugins.im.feishu` enabled so `agentkit deploy` also wires the Feishu
+  proxy without extra flags;
+- point `AGENTKIT_TOOL_ID*` at your own sandbox tool.
+
+Redeploying re-uses the same domain, so downstream consumers don't need
+re-configuration.
 
 ### 7.4 Deploy the Web UI to VeFaaS
 

@@ -178,14 +178,17 @@ film-director-agent/
 │   ├── run_local.sh                # 本地调试（:8090，同时暴露 local + cloud 目标）
 │   ├── run.sh                      # VeFaaS 运行时入口
 │   └── deploy_vefaas.py            # VeFaaS 一键部署（首建或 update-bundle）
-├── .agentkit/agentkit.yaml         # AgentKit 部署清单（envs、插件、runtime spec）
-├── .github/workflows/deploy.yml    # CI：main 推送时 `agentkit deploy`
 ├── .env.example                    # 占位符 env — 复制为 .env
 ├── config.yaml                     # VeADK 静态配置（可被环境变量覆盖）
-├── Dockerfile                      # Runtime 镜像
-├── pyproject.toml / requirements.txt
+├── requirements.txt                # 云端 AgentKit Runtime 依赖
 └── src/aw_director_agent/          # 命令行入口（项目改名的账本）
 ```
+
+> **不在公开仓库中（本地保留，通过 `.gitignore` 忽略）：**
+> `.agentkit/agentkit.yaml`、`.github/workflows/`、`Dockerfile`、`.dockerignore`、
+> `pyproject.toml`、`uv.lock`、`.python-version` —— 这些文件里含有作者环境的
+> 部署 id、容器与 CI 细节。Fork 后可用 `agentkit init` + `uv init` 重新生成
+> 属于你自己的版本。
 
 ### 5.1 运行拓扑
 
@@ -283,10 +286,10 @@ FEISHU_APP_SECRET=…
 
 - `.env` 已加入 `.gitignore`，永不提交。`.env.example` 只放占位符。
 - API Key 只在**服务端**流转。浏览器只跟同源 `/api/*` 说话，前端 bundle 里没有敏感值。
-- CI（`.github/workflows/deploy.yml`）从 GitHub **Repo Secrets** 读取 AK/SK 与
-  飞书凭证，不从代码里取。
 - Web UI 部署到 VeFaaS 时，`.env` 作为**函数环境变量**在部署时注入，代码
   bundle 里不包含 `.env`。
+- 携带 `AGENTKIT_TOOL_ID*` / 网关 id 的 AgentKit 部署清单与 CI workflow
+  不在公开仓库中——详见 §5 的"本地保留文件"说明。
 
 ***
 
@@ -325,12 +328,14 @@ export FEISHU_APP_ID=… FEISHU_APP_SECRET=…
 agentkit deploy
 ```
 
-自动读取 `.agentkit/agentkit.yaml` + `Dockerfile`，云端构建镜像、创建或更新
-AgentKit Runtime；由于 manifest 已开启 `im.feishu`，`agentkit deploy` 会同时
-挂上飞书代理，无需额外参数。重新部署复用同一域名，下游消费者无需重配。
+这一步需要 AgentKit 部署清单（`.agentkit/agentkit.yaml`）与 `Dockerfile`。
+两者均**不**在公开仓库中——它们含有作者环境的 tool id 与网关 id。Fork 后请
+用 `agentkit init`（VeADK / AgentKit CLI）自行生成，然后按需调整：
 
-CI/CD：向 `main` 推送时会触发 [.github/workflows/deploy.yml](.github/workflows/deploy.yml)，
-在 GitHub Actions 里用 Repo Secrets 执行 `agentkit deploy`。
+- 保持 `plugins.im.feishu` 打开，`agentkit deploy` 会同时挂上飞书代理；
+- 把 `AGENTKIT_TOOL_ID*` 指向你自己的沙箱 tool id。
+
+重新部署复用同一域名，下游消费者无需重配。
 
 ### 7.4 发布 Web UI 到 VeFaaS
 

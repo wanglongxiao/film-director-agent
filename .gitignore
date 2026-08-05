@@ -3,19 +3,25 @@ __pycache__/
 .venv/
 .env
 
-# agentkit per-deploy artifacts (build/apply logs, image record)
-.agentkit/artifacts/
-
 # deploy 日志：含 account id / IAM role / VeFaaS 及网关等内部信息，勿提交
 deploy.log
 
 # 运行期/会话产物（本地 ADK 会话库、沙箱缓存、编辑器技能缓存）
 .trae/
 assistant/.adk/
-.agentkit/sandbox/
 
 # IDE 本地设置
 .vscode/
 
 # macOS Finder 元数据
 .DS_Store
+
+# 本仓库不包含 AgentKit / 容器 / CI 部署链路，保留在本地以便个人使用。
+# 云端发布路径请参考 webui/deploy_vefaas.py（VeFaaS）。
+.agentkit/
+.github/
+.dockerignore
+Dockerfile
+pyproject.toml
+uv.lock
+.python-version
