@@ -8,3 +8,8 @@ __pycache__/
 
 # deploy 日志：含 account id / IAM role / VeFaaS 及网关等内部信息，勿提交
 deploy.log
+
+# 运行期/会话产物（本地 ADK 会话库、沙箱缓存、编辑器技能缓存）
+.trae/
+assistant/.adk/
+.agentkit/sandbox/

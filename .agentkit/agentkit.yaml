@@ -38,7 +38,34 @@ runtime:
 # Use ${VAR} for secrets — resolved from the deploy env, never committed here.
 # (This replaces the older AK_-prefix injection: declare each var explicitly.)
 envs:
-  # MODEL_AGENT_API_KEY: ${MODEL_AGENT_API_KEY:?set MODEL_AGENT_API_KEY in your env}
+  CLOUD_PROVIDER: ${CLOUD_PROVIDER:-volces}
+  # 指定的方舟推理接入点 + API Key（本 agent 固定使用该 endpoint）
+  MODEL_AGENT_API_KEY: ${MODEL_AGENT_API_KEY:?set MODEL_AGENT_API_KEY in your env}
+  MODEL_AGENT_NAME: ${MODEL_AGENT_NAME:-ep-20260804114747-mc7ct}
+  MODEL_AGENT_PROVIDER: ${MODEL_AGENT_PROVIDER:-openai}
+  MODEL_AGENT_API_BASE: ${MODEL_AGENT_API_BASE:-https://ark.cn-beijing.volces.com/api/v3/}
+  # 图片/视频生成主模型（代码在“模型相关错误”时自动降级重试）
+  MODEL_IMAGE_NAME: ${MODEL_IMAGE_NAME:-doubao-seedream-5-0-pro-260628}
+  MODEL_VIDEO_NAME: ${MODEL_VIDEO_NAME:-doubao-seedance-2-0-260128}
+  # image/video 生成模型 API Key：本项目让三者共用同一把 key，由 .env 显式提供。
+  # 注意 AgentKit 的 ${VAR:-default} 不支持在 default 里再嵌套 ${}，故这里直接引用。
+  MODEL_IMAGE_API_KEY: ${MODEL_IMAGE_API_KEY:?set MODEL_IMAGE_API_KEY in your env}
+  MODEL_VIDEO_API_KEY: ${MODEL_VIDEO_API_KEY:?set MODEL_VIDEO_API_KEY in your env}
+  # 火山账号 AK/SK：AgentKit sandbox 工具调用需要
+  VOLCENGINE_ACCESS_KEY: ${VOLCENGINE_ACCESS_KEY:?set VOLCENGINE_ACCESS_KEY in your env}
+  VOLCENGINE_SECRET_KEY: ${VOLCENGINE_SECRET_KEY:?set VOLCENGINE_SECRET_KEY in your env}
+  # AgentKit sandbox tool_id（run_code / coding / execute_skills）
+  AGENTKIT_TOOL_ID: ${AGENTKIT_TOOL_ID:-t-yes2y0gzk0gumvo43ppk}
+  AGENTKIT_TOOL_ID_SCRIPT: ${AGENTKIT_TOOL_ID_SCRIPT:-t-yes2y0gzk0gumvo43ppk}
+  AGENTKIT_TOOL_ID_OPENCODE: ${AGENTKIT_TOOL_ID_OPENCODE:-t-yes2y0gzk0gumvo43ppk}
+  AGENTKIT_TOOL_ID_SKILLS: ${AGENTKIT_TOOL_ID_SKILLS:-t-yes2y0gzk0gumvo43ppk}
+  # 单轮输出预算：解决 MAX_TOKENS（输出上限）问题；与上下文压缩处理的是不同层面。
+  VEADK_MAX_OUTPUT_TOKENS: ${VEADK_MAX_OUTPUT_TOKENS:-3000}
+  VEADK_CONTINUATION_MAX_OUTPUT_TOKENS: ${VEADK_CONTINUATION_MAX_OUTPUT_TOKENS:-2200}
+  VEADK_OUTPUT_MEMORY_DB_PATH: ${VEADK_OUTPUT_MEMORY_DB_PATH:-/tmp/movie_script_output_memory.db}
+  VEADK_LOCAL_KB_DB_PATH: ${VEADK_LOCAL_KB_DB_PATH:-/tmp/movie_script_local_knowledge.db}
+  VEADK_AUTO_CONTINUE_MAX_STEPS: ${VEADK_AUTO_CONTINUE_MAX_STEPS:-4}
+  VEADK_AUTO_CONTINUE_TAIL_CHARS: ${VEADK_AUTO_CONTINUE_TAIL_CHARS:-3000}
   # LOG_LEVEL: ${LOG_LEVEL:-info}
 
 # ── Model / associated resources (optional) ──────────────

@@ -18,7 +18,7 @@ model:
     api_base: https://ark.cn-beijing.volces.com/api/v3/
     # api_key: 建议放 .env 的 MODEL_AGENT_API_KEY，勿写在此文件
 
-  # Embedding 模型（长时记忆 / 知识库检索时使用）
+  # Embedding 模型（当前严格禁用检索链路，一般无需配置）
   embedding:
     name: doubao-embedding-vision-250615
     dim: 2048
@@ -53,11 +53,6 @@ model:
 #     uri: ""
 #     db_name: default
 #
-#   # 知识库 -> Viking Knowledgebase
-#   viking:
-#     project: default
-#     region: cn-beijing
-
 # observability:
 #   opentelemetry:
 #     trace_content: true
