@@ -44,7 +44,17 @@ def main() -> None:
     existing = faas.find_app_id_by_name(app_name)
     if existing:
         print(f"应用 {app_name} 已存在（{existing}），更新代码并重新发布…")
-        url, app_id, fn_id = faas._update_function_code(app_name, str(HERE))
+        # 用 update_application_code_bundle 直接上传 webui/（含 run.sh），
+        # 避开 _update_function_code 里 cookiecutter 写 ~/.cookiecutter_replay 的限制。
+        route = faas.get_application_details(app_id=existing)
+        import json as _json
+
+        cloud_resource = _json.loads(route["CloudResource"])
+        fn_id = cloud_resource["framework"]["function"]["Id"]
+        url = faas.update_application_code_bundle(
+            application_id=existing, function_id=fn_id, path=str(HERE)
+        )
+        app_id = existing
     else:
         print(f"首次部署 VeFaaS 应用 {app_name} …")
         url, app_id, fn_id = faas.deploy(name=app_name, path=str(HERE))
