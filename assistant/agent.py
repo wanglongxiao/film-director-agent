@@ -190,6 +190,13 @@ INSTRUCTION = """\
    draft_build_document（传 filename、doc_format=pdf、可选 title），由服务端从本地 sqlite
    读回全部片段拼成完整文档并生成 PDF。此步你只传几个短参数，不需要重新输出任何长正文，
    因此不受单轮 token 限制，长任务得以稳定完成。
+   【交付前自检，强制】调用 draft_build_document 之前，务必先用 draft_status 核对：
+   (a) 章节字数足以覆盖「完整剧本」而非仅大纲/梗概——若用户要的是完整剧本，必须把每一场戏的
+       完整分场、机位、动作与对白都通过 draft_add_section 落盘，严禁只写章节标题或情节概要就成稿；
+   (b) 本任务生成的每一张主角定妆照与关键分镜参考图，都已通过 draft_add_image 以对应 URL 落盘，
+       并插在其对应剧情位置，实现图文混排。若发现章节过短或图片缺失，先补齐再组装，不要提前交付。
+   注意：draft_add_image 请传图片的完整 URL；服务端组装 PDF 时会自动把图片下载内联进 PDF，
+   使成品自包含图片，因此不要因为担心 URL 过期而跳过配图。
 - 需要读取/校验此前生成的 Word / PDF / PPT / HTML 文件内容时，调用 read_document，
   传入 path（可用 create_document 返回的路径或纯文件名）。
 - 需要运行或验证代码（如脚本统计、数据处理、格式转换）时，用 run_code 直接

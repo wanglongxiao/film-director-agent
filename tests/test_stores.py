@@ -92,6 +92,34 @@ class DocumentDraftStoreTest(unittest.TestCase):
         html = self.store.assemble_html(**_IDS, draft_id="d")
         self.assertNotIn("<img", html)
 
+    def test_assemble_inlines_images_as_base64_when_enabled(self):
+        # PDF 自包含图片：开启内联时，远程 URL 被替换为 base64 data URI（下载被打桩）。
+        import assistant.document_draft_store as dds
+        self.store.add_item(**_IDS, draft_id="d", kind="image",
+                            url="http://cdn/keyshot.png", caption="关键镜头")
+        orig_flag, orig_fn = dds._INLINE_IMAGES, dds._image_url_to_data_uri
+        dds._INLINE_IMAGES = True
+        dds._image_url_to_data_uri = lambda url: "data:image/png;base64,QUJD"
+        try:
+            html = self.store.assemble_html(**_IDS, draft_id="d")
+        finally:
+            dds._INLINE_IMAGES, dds._image_url_to_data_uri = orig_flag, orig_fn
+        self.assertIn('<img src="data:image/png;base64,QUJD"', html)
+        self.assertNotIn("http://cdn/keyshot.png", html)  # 原始 URL 已被内联替换
+
+    def test_assemble_falls_back_to_url_when_inline_download_fails(self):
+        import assistant.document_draft_store as dds
+        self.store.add_item(**_IDS, draft_id="d", kind="image",
+                            url="http://cdn/keyshot.png", caption="关键镜头")
+        orig_flag, orig_fn = dds._INLINE_IMAGES, dds._image_url_to_data_uri
+        dds._INLINE_IMAGES = True
+        dds._image_url_to_data_uri = lambda url: None  # 下载失败 → 回退原始 URL
+        try:
+            html = self.store.assemble_html(**_IDS, draft_id="d")
+        finally:
+            dds._INLINE_IMAGES, dds._image_url_to_data_uri = orig_flag, orig_fn
+        self.assertIn('<img src="http://cdn/keyshot.png"', html)
+
 
 class SectionMarkdownTest(unittest.TestCase):
     def test_headings_bullets_and_paragraphs(self):

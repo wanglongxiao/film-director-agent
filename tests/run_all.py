@@ -27,6 +27,8 @@ _TMP = tempfile.mkdtemp(prefix="director-agent-tests-")
 os.environ.setdefault("VEADK_DOC_DRAFT_DB_PATH", os.path.join(_TMP, "draft.db"))
 os.environ.setdefault("VEADK_OUTPUT_MEMORY_DB_PATH", os.path.join(_TMP, "cont.db"))
 os.environ.setdefault("VEADK_LOCAL_KB_DB_PATH", os.path.join(_TMP, "kb.db"))
+# Keep assemble_html offline & deterministic: don't hit the network to inline images.
+os.environ.setdefault("VEADK_DOC_INLINE_IMAGES", "0")
 
 # Quiet the noisy VeADK import-time logging (keep only warnings+).
 logging.getLogger("veadk").setLevel(logging.WARNING)

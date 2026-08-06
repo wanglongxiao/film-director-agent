@@ -56,6 +56,20 @@ class FilesFromToolResponseTest(unittest.TestCase):
         self.assertTrue(all(f["kind"] == "video" for f in files))
         self.assertEqual(files[0]["name"], "keyshot.mp4")
 
+    def test_video_generate_success_list_is_video_with_full_signed_url(self):
+        # video_generate returns success_list (same shape as image_generate); it must
+        # be classified as VIDEO (not image) and keep the full signed URL incl. query.
+        signed = ("https://ark-acg-cn-beijing.tos-cn-beijing.volces.com/x.mp4"
+                  "?X-Tos-Algorithm=TOS4-HMAC-SHA256&X-Tos-Signature=abc123")
+        resp = {"status": "success", "success_list": [{"scene1_rooftop": signed}]}
+        files = self._files("video_generate", resp)
+        video_files = [f for f in files if f["kind"] == "video"]
+        self.assertTrue(video_files, "video_generate success_list must yield a video file")
+        self.assertEqual(video_files[0]["url"], signed)  # 签名参数完整保留
+        self.assertIn("X-Tos-Signature=abc123", video_files[0]["url"])
+        # 不得被误判为 image（旧 bug：success_list 一律当图片 → 视频渲染成破图）。
+        self.assertFalse(any(f["kind"] == "image" for f in files))
+
     def test_document_path_becomes_api_file_link(self):
         resp = {"ok": True, "fmt": "pdf",
                 "path": "/home/gem/veadk_docs/霓虹之眼.pdf", "size_bytes": 1000}
@@ -221,6 +235,66 @@ class ApiFileRouteTest(unittest.TestCase):
         finally:
             sandbox_files.read_sandbox_file = orig
         self.assertEqual(r.status_code, 404)
+
+
+class ApiVideoProxyRouteTest(unittest.TestCase):
+    """视频播放包底：<video> 直连失败时由 BFF 用完整签名 URL 代理拉取。"""
+
+    def test_rejects_non_http_url(self):
+        r = _run(_get(server.app, "/api/video-proxy?url=ftp://x/a.mp4"))
+        self.assertEqual(r.status_code, 400)
+
+    def test_rejects_disallowed_host(self):
+        # 仅允许方舟/TOS 域名，防止被当作任意 SSRF 代理。
+        r = _run(_get(server.app, "/api/video-proxy?url=http://evil.example.com/a.mp4"))
+        self.assertEqual(r.status_code, 400)
+
+    def test_allows_volces_tos_signed_url(self):
+        # 打桩上游，验证允许的签名 URL 被放行并流式转发（含 content-type 透传）。
+        signed = ("https://ark-acg-cn-beijing.tos-cn-beijing.volces.com/x.mp4"
+                  "?X-Tos-Signature=abc")
+
+        class _FakeUpstream:
+            status_code = 200
+            headers = {"content-type": "video/mp4", "content-length": "3"}
+
+            async def aiter_bytes(self):
+                yield b"MP4"
+
+            async def aclose(self):
+                pass
+
+        real_async_client = server.httpx.AsyncClient
+
+        class _FakeClient:
+            def __init__(self, *a, **k):
+                # 测试自身的 ASGI 客户端（带 transport）仍用真实实现，只有代理内部的
+                # 出站请求（无 transport）走假上游，从而保持离线。
+                self._real = real_async_client(*a, **k) if "transport" in k else None
+
+            async def __aenter__(self):
+                return await self._real.__aenter__()
+
+            async def __aexit__(self, *a):
+                return await self._real.__aexit__(*a)
+
+            def build_request(self, *a, **k):
+                return object()
+
+            async def send(self, *a, **k):
+                return _FakeUpstream()
+
+            async def aclose(self):
+                pass
+
+        server.httpx.AsyncClient = _FakeClient
+        try:
+            r = _run(_get(server.app, "/api/video-proxy?url=" + signed))
+        finally:
+            server.httpx.AsyncClient = real_async_client
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.headers["content-type"], "video/mp4")
+        self.assertEqual(r.content, b"MP4")
 
 
 if __name__ == "__main__":

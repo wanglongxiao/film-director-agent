@@ -32,6 +32,37 @@ _DEFAULT_DB_PATH = os.getenv(
     "VEADK_DOC_DRAFT_DB_PATH", "/tmp/movie_script_doc_draft.db"
 )
 
+# 组装 PDF 时是否把远程图片下载并内联为 base64（默认开）。沙箱内 weasyprint 常常无法
+# 联网拉取带签名的临时 URL，导致「图片不进 PDF」；改在服务端（有网、URL 未过期时）预下载
+# 内联，PDF 即自包含图片。下载失败则回退为原始 URL，交给渲染端尽力拉取。
+_INLINE_IMAGES = os.getenv("VEADK_DOC_INLINE_IMAGES", "1").strip().lower() not in ("0", "false", "no")
+_IMAGE_DOWNLOAD_TIMEOUT = float(os.getenv("VEADK_DOC_IMAGE_TIMEOUT", "20"))
+_IMAGE_MAX_BYTES = int(os.getenv("VEADK_DOC_IMAGE_MAX_BYTES", str(12 * 1024 * 1024)))
+
+
+def _image_url_to_data_uri(url: str) -> str | None:
+    """下载图片并转为 base64 data URI；失败/超限返回 None（回退到原始 URL）。"""
+    if not (isinstance(url, str) and url.lower().startswith(("http://", "https://"))):
+        return None
+    try:
+        import base64
+
+        import httpx
+
+        with httpx.Client(timeout=_IMAGE_DOWNLOAD_TIMEOUT, follow_redirects=True) as client:
+            resp = client.get(url)
+            resp.raise_for_status()
+            data = resp.content
+            if not data or len(data) > _IMAGE_MAX_BYTES:
+                return None
+            ctype = (resp.headers.get("content-type") or "").split(";")[0].strip()
+            if not ctype.startswith("image/"):
+                ctype = "image/jpeg"
+            b64 = base64.b64encode(data).decode("ascii")
+            return "data:%s;base64,%s" % (ctype, b64)
+    except Exception:  # noqa: BLE001 - 下载失败即回退原始 URL
+        return None
+
 
 def _esc(text: str) -> str:
     return (
@@ -277,8 +308,14 @@ class DocumentDraftStore:
                 if not url:
                     continue
                 caption = it.get("caption") or it.get("title") or ""
+                # 优先内联为 base64，使 PDF 自包含图片；下载失败则回退原始 URL。
+                src = url
+                if _INLINE_IMAGES:
+                    data_uri = _image_url_to_data_uri(url)
+                    if data_uri:
+                        src = data_uri
                 fig = ['<figure class="doc-figure">']
-                fig.append('<img src="%s" alt="%s" />' % (_esc(url), _esc(caption)))
+                fig.append('<img src="%s" alt="%s" />' % (_esc(src), _esc(caption)))
                 if caption:
                     fig.append("<figcaption>%s</figcaption>" % _esc(caption))
                 fig.append("</figure>")

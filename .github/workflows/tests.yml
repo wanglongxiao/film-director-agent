@@ -34,4 +34,5 @@ jobs:
           VEADK_DOC_DRAFT_DB_PATH: ${{ runner.temp }}/draft.db
           VEADK_OUTPUT_MEMORY_DB_PATH: ${{ runner.temp }}/cont.db
           VEADK_LOCAL_KB_DB_PATH: ${{ runner.temp }}/kb.db
+          VEADK_DOC_INLINE_IMAGES: "0"
         run: python -m unittest discover -s tests -p "test_*.py" -v

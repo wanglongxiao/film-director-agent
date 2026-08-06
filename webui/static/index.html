@@ -536,6 +536,13 @@ function renderFile(container, f) {
     const v = document.createElement("video");
     v.className = "att-video"; v.src = f.url; v.controls = true; v.preload = "metadata";
     v.playsInline = true;
+    // 包底逻辑：若直连签名 URL 播放失败（CORS/防盗链），改用 BFF 代理拉取完整签名 URL。
+    v.addEventListener("error", () => {
+      if (v.dataset.proxied === "1") return;
+      v.dataset.proxied = "1";
+      v.src = "/api/video-proxy?url=" + encodeURIComponent(f.url);
+      v.load();
+    }, { once: true });
     const link = document.createElement("a");
     link.className = "att-video-link";
     link.href = f.url; link.target = "_blank"; link.rel = "noopener";
@@ -658,8 +665,8 @@ function startAutoCountdown() {
   let left = 10;
   const render = () => {
     autoBannerEl.innerHTML =
-      'Agent 等待输入。自动模式将在 <span class="countdown">' + left +
-      '</span> 秒后发送「继续」；任意键盘、鼠标或触摸操作会取消本次自动继续。';
+      '<span class="countdown">' + left +
+      '</span> 秒后自动「继续」，任意操作可取消。';
     autoBannerEl.classList.add("show");
   };
   countdownCancel = () => cancelAutoCountdown();

@@ -240,13 +240,16 @@ def _files_from_tool_response(name: str, resp: dict, user_id: str, session_id: s
     if not isinstance(resp, dict):
         return
 
-    # 1) 图片：image_generate → {"status":"success","success_list":[{name:url}, ...]}
-    if name == "image_generate" or "success_list" in resp:
+    # 1) success_list：image_generate / video_generate 同为 [{name: url}, ...]。
+    #    按工具名区分媒体类别；video_generate 的 url 带签名参数，必须原样保留（含 query）。
+    if "success_list" in resp:
+        media_kind = "video" if name == "video_generate" else "image"
         for item in resp.get("success_list") or []:
             if isinstance(item, dict):
                 for fname, url in item.items():
                     if isinstance(url, str) and url.startswith("http"):
-                        yield {"type": "file", "kind": "image", "url": url, "name": fname}
+                        yield {"type": "file", "kind": media_kind, "url": url,
+                               "name": fname}
 
     # 2) 视频：video_generate / video_task_query → {"video_url": "http..."}
     vurl = resp.get("video_url")
@@ -349,6 +352,61 @@ async def api_file(
         "Cache-Control": "no-store",
     }
     return Response(content=res["data"], media_type=media_type, headers=headers)
+
+
+@app.get("/api/video-proxy")
+async def api_video_proxy(url: str, request: Request):
+    """视频播放包底逻辑：当浏览器 <video> 直连签名 URL 失败（CORS/防盗链/证书）时，
+    由本层用完整签名 URL（含 X-Tos-* 全部参数）把视频抓回并转发给前端播放器。
+
+    关键：url 必须是完整签名直链，query 参数原样透传，否则 TOS 会 403。
+    支持 Range 头以便播放器分段拉取/拖动进度。
+    """
+    if not (isinstance(url, str) and url.startswith(("http://", "https://"))):
+        raise HTTPException(status_code=400, detail="invalid url")
+    # 仅允许方舟/TOS 视频域名，避免被当作任意 SSRF 代理。
+    low = url.lower()
+    if "volces.com" not in low and "volceapi.com" not in low and "volcengineapi.com" not in low:
+        raise HTTPException(status_code=400, detail="url host not allowed")
+
+    fwd_headers = {}
+    rng = request.headers.get("range")
+    if rng:
+        fwd_headers["Range"] = rng
+
+    client = httpx.AsyncClient(timeout=60, follow_redirects=True)
+    try:
+        upstream = await client.send(
+            client.build_request("GET", url, headers=fwd_headers), stream=True
+        )
+    except Exception as e:  # noqa: BLE001
+        await client.aclose()
+        raise HTTPException(status_code=502, detail=f"video fetch failed: {e!r}")
+
+    if upstream.status_code >= 400:
+        code = upstream.status_code
+        await upstream.aclose()
+        await client.aclose()
+        raise HTTPException(status_code=502, detail=f"upstream {code}")
+
+    passthrough = {
+        k: v for k, v in upstream.headers.items()
+        if k.lower() in ("content-type", "content-length", "content-range", "accept-ranges")
+    }
+    passthrough.setdefault("content-type", "video/mp4")
+    passthrough["Cache-Control"] = "no-store"
+
+    async def _stream():
+        try:
+            async for chunk in upstream.aiter_bytes():
+                yield chunk
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+
+    return StreamingResponse(
+        _stream(), status_code=upstream.status_code, headers=passthrough
+    )
 
 
 # --- 静态前端 ---------------------------------------------------------------
