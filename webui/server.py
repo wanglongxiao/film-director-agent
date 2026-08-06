@@ -130,9 +130,9 @@ async def api_config():
     """告诉前端有哪些可用目标（不含任何密钥）。"""
     targets = []
     if ENABLE_LOCAL:
-        targets.append({"id": "local", "label": "本地 Agent (ADK :8000)"})
+        targets.append({"id": "local", "label": "本地 Agent"})
     if CLOUD_API_KEY:
-        targets.append({"id": "cloud", "label": "云端 Agent (VeFaaS/AgentKit)"})
+        targets.append({"id": "cloud", "label": "云端 Agent"})
     default = "cloud" if any(t["id"] == "cloud" for t in targets) else (
         targets[0]["id"] if targets else None
     )
