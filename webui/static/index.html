@@ -48,6 +48,17 @@
     background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
     border-radius: 8px; padding: 6px 10px; font-size: 13px; cursor: pointer;
   }
+  .auto-toggle.active { color: #fff; border-color: var(--accent); background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
+  .auto-banner {
+    display: none; align-items: center; justify-content: center; gap: 8px;
+    padding: 8px 12px; background: #211b35; border-bottom: 1px solid var(--border);
+    color: var(--text); font-size: 13px; text-align: center;
+  }
+  .auto-banner.show { display: flex; }
+  .countdown {
+    min-width: 28px; padding: 2px 8px; border-radius: 999px;
+    color: #fff; background: var(--accent); font-weight: 700;
+  }
   select:focus { outline: 1px solid var(--accent); }
   .status { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
@@ -130,15 +141,40 @@
   .send { background: linear-gradient(135deg, var(--accent), var(--accent-2)); border: none;
     color: #fff; font-weight: 600; padding: 10px 18px; height: 42px; }
   .send:disabled { opacity: .5; cursor: not-allowed; }
+  .stop {
+    display: none; height: 42px; padding: 10px 14px; color: #fff; font-weight: 600;
+    background: #a52834; border-color: #c93c49;
+  }
+  body.is-busy .stop { display: inline-flex; align-items: center; }
   .hint { max-width: 860px; margin: 6px auto 0; font-size: 11px; color: var(--muted); }
   .blink::after { content: "▋"; animation: b 1s steps(2) infinite; color: var(--accent); }
   @keyframes b { 0%,100%{opacity:1} 50%{opacity:0} }
   /* Agent 生成的文件（图片/视频/文档）附件 */
-  .attachments { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+  .attachments {
+    display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 10px; margin-top: 10px;
+  }
   .attachments:empty { display: none; }
-  .att-img { max-width: 100%; border-radius: 10px; border: 1px solid var(--border); cursor: zoom-in; }
-  .att-video { max-width: 100%; border-radius: 10px; border: 1px solid var(--border); background: #000; }
+  .att-image-link { display: block; min-width: 0; }
+  .att-img {
+    width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block;
+    border-radius: 10px; border: 1px solid var(--border); cursor: zoom-in;
+  }
+  .att-video-card {
+    grid-column: span 3; min-width: 0; padding: 10px;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
+  }
+  .att-video {
+    width: 100%; aspect-ratio: 16 / 9; display: block;
+    border-radius: 8px; border: 1px solid var(--border); background: #000;
+  }
+  .att-video-link {
+    display: block; margin-top: 8px; color: var(--accent-2); font-size: 12px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none;
+  }
+  .att-video-link:hover { text-decoration: underline; }
   .att-doc {
+    grid-column: 1 / -1;
     display: flex; align-items: center; gap: 12px; padding: 10px 12px;
     background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
   }
@@ -153,7 +189,7 @@
   }
   .att-doc a.secondary, .att-doc button.secondary { background: var(--panel); border: 1px solid var(--border); color: var(--text); }
   .att-doc iframe { width: 100%; height: 460px; border: 1px solid var(--border); border-radius: 8px; }
-  .doc-preview { margin-top: 8px; }
+  .doc-preview { grid-column: 1 / -1; margin-top: 8px; }
 
   /* ============ 响应式：平板 (<=900px) ============ */
   @media (max-width: 900px) {
@@ -184,6 +220,7 @@
     .composer { gap: 6px; }
     textarea { font-size: 15px; padding: 8px 10px; max-height: 120px; }
     .send { padding: 8px 12px; height: 40px; font-size: 13px; }
+    .stop { height: 40px; padding: 8px 10px; font-size: 13px; }
     .hint { font-size: 10px; }
 
     /* 侧栏在手机上改为覆盖层 (drawer) */
@@ -200,6 +237,8 @@
     }
     body.sidebar-open .sidebar-backdrop { display: block; opacity: 1; }
 
+    .attachments { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .att-video-card { grid-column: 1 / -1; padding: 8px; }
     .att-doc { flex-wrap: wrap; }
     .att-doc .info { flex: 1 1 100%; order: 1; }
     .att-doc .icon { order: 0; }
@@ -220,11 +259,13 @@
   <h1>director-agent · 导演助手</h1>
   <div class="spacer"></div>
   <div class="controls">
+    <button id="autoMode" class="auto-toggle active" type="button" title="自动继续需要用户确认的步骤">自动模式：开</button>
     <label for="target" class="status">目标</label>
     <select id="target"></select>
     <span class="status"><span id="dot" class="dot"></span><span id="statusText">检测中…</span></span>
   </div>
 </header>
+<div class="auto-banner" id="autoBanner" aria-live="polite"></div>
 <div class="layout">
   <aside class="sidebar collapsed" id="sidebar">
     <div class="sidebar-head">
@@ -243,6 +284,7 @@
     <footer>
       <div class="composer">
         <textarea id="input" rows="1" placeholder="给「导演助手」下达指令，例如：帮我构思一个赛博朋克悬疑短剧的背景与基调…"></textarea>
+        <button class="stop" id="stop" type="button" title="打断当前生成并回到发送前状态">Stop</button>
         <button class="send" id="send">发送</button>
       </div>
       <div class="hint">Enter 发送 · Shift+Enter 换行 · apikey 由后端保管，不会下发到浏览器</div>
@@ -257,7 +299,15 @@ const sessionListEl = $("sessionList");
 const targetEl = $("target");
 const inputEl = $("input");
 const sendBtn = $("send");
+const stopBtn = $("stop");
+const autoModeBtn = $("autoMode");
+const autoBannerEl = $("autoBanner");
 let busy = false;
+let activeController = null;
+let activeRun = null;
+let countdownTimer = null;
+let countdownCancel = null;
+let autoMode = true;
 
 /* ============ 历史会话（localStorage） ============ */
 const STORAGE_KEY = "awdir_sessions_v1";
@@ -421,16 +471,25 @@ function scrollDown() { const m = document.querySelector("main"); m.scrollTop = 
 function renderFile(container, f) {
   if (f.kind === "image") {
     const a = document.createElement("a");
+    a.className = "att-image-link";
     a.href = f.url; a.target = "_blank"; a.rel = "noopener";
     const img = document.createElement("img");
     img.className = "att-img"; img.src = f.url; img.alt = f.name || "image";
     img.loading = "lazy";
     a.appendChild(img); container.appendChild(a);
   } else if (f.kind === "video") {
+    const card = document.createElement("div");
+    card.className = "att-video-card";
     const v = document.createElement("video");
     v.className = "att-video"; v.src = f.url; v.controls = true; v.preload = "metadata";
     v.playsInline = true;
-    container.appendChild(v);
+    const link = document.createElement("a");
+    link.className = "att-video-link";
+    link.href = f.url; link.target = "_blank"; link.rel = "noopener";
+    link.textContent = "打开/下载视频：" + (f.name || f.url);
+    card.appendChild(v);
+    card.appendChild(link);
+    container.appendChild(card);
   } else if (f.kind === "doc") {
     const card = document.createElement("div");
     card.className = "att-doc";
@@ -500,17 +559,100 @@ async function checkHealth() {
 
 function chipFor(text) { const c = document.createElement("span"); c.className = "chip"; c.textContent = text; return c; }
 
-async function send() {
-  const message = inputEl.value.trim();
+function setBusy(next) {
+  busy = next;
+  sendBtn.disabled = next;
+  document.body.classList.toggle("is-busy", next);
+}
+
+function setAutoMode(next) {
+  autoMode = next;
+  autoModeBtn.classList.toggle("active", autoMode);
+  autoModeBtn.textContent = "自动模式：" + (autoMode ? "开" : "关");
+  try { localStorage.setItem("awdir_auto_mode_v1", autoMode ? "1" : "0"); } catch (e) {}
+  if (!autoMode) cancelAutoCountdown();
+}
+
+function shouldAutoContinue(text) {
+  const t = (text || "").replace(/\s+/g, " ");
+  return /输出已截断|单次输出预算|MAX token|token上限|请回复[「“\"]?继续|直接回复[：:]?[`「“\"]?继续|回复\s*[`「“\"]继续|继续第\s*\d+\s*部分|继续后\s*\d+\s*集|继续下一幕/.test(t);
+}
+
+function cancelAutoCountdown() {
+  if (countdownTimer) clearInterval(countdownTimer);
+  countdownTimer = null;
+  if (countdownCancel) {
+    ["pointerdown", "keydown", "input", "touchstart"].forEach((ev) =>
+      window.removeEventListener(ev, countdownCancel, true)
+    );
+  }
+  countdownCancel = null;
+  autoBannerEl.classList.remove("show");
+  autoBannerEl.textContent = "";
+}
+
+function startAutoCountdown() {
+  if (!autoMode || busy) return;
+  cancelAutoCountdown();
+  let left = 10;
+  const render = () => {
+    autoBannerEl.innerHTML =
+      'Agent 等待输入。自动模式将在 <span class="countdown">' + left +
+      '</span> 秒后发送「继续」；任意键盘、鼠标或触摸操作会取消本次自动继续。';
+    autoBannerEl.classList.add("show");
+  };
+  countdownCancel = () => cancelAutoCountdown();
+  ["pointerdown", "keydown", "input", "touchstart"].forEach((ev) =>
+    window.addEventListener(ev, countdownCancel, true)
+  );
+  render();
+  countdownTimer = setInterval(() => {
+    left -= 1;
+    if (left <= 0) {
+      cancelAutoCountdown();
+      send("继续", { auto: true });
+      return;
+    }
+    render();
+  }, 1000);
+}
+
+function stopCurrentRun() {
+  if (!activeController || !activeRun) return;
+  activeRun.stopped = true;
+  activeController.abort();
+  const s = current();
+  if (s && s.id === activeRun.sessionId) {
+    s.messages.splice(activeRun.startIndex, 2);
+    if (!s.messages.length) s.title = "新会话";
+    saveSessions();
+    renderSessionList();
+    renderMessages();
+  }
+  inputEl.value = activeRun.message;
+  inputEl.style.height = "auto";
+  inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + "px";
+  cancelAutoCountdown();
+  setBusy(false);
+  activeController = null;
+  activeRun = null;
+  inputEl.focus();
+}
+
+async function send(messageOverride = null, opts = {}) {
+  const message = (messageOverride ?? inputEl.value).trim();
   if (!message || busy) return;
-  busy = true; sendBtn.disabled = true;
+  cancelAutoCountdown();
+  setBusy(true);
   inputEl.value = ""; inputEl.style.height = "auto";
 
   const s = current();
-  // 首条用户消息作为会话标题
-  if (!s.title || s.title === "新会话") s.title = message.slice(0, 24) || "新会话";
+  if (!s) { setBusy(false); return; }
+  // 首条用户消息作为会话标题；自动续写不改标题
+  if (!opts.auto && (!s.title || s.title === "新会话")) s.title = message.slice(0, 24) || "新会话";
   const userMsg = { role: "user", text: message };
   const asstMsg = { role: "assistant", text: "", thought: "", tools: [], files: [] };
+  const startIndex = s.messages.length;
   s.messages.push(userMsg, asstMsg);
   touchCurrent();
 
@@ -525,18 +667,23 @@ async function send() {
   let thoughtEl = null;
   const seenTools = new Set();
   const seenFiles = new Set();
+  const controller = new AbortController();
+  const run = { sessionId: s.id, startIndex, message, stopped: false };
+  activeController = controller;
+  activeRun = run;
 
   try {
     const resp = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ target: targetEl.value, message, session_id: s.id }),
+      signal: controller.signal,
     });
     if (!resp.ok || !resp.body) {
       asst.bubble.classList.remove("blink");
       asst.bubble.textContent = "请求失败：HTTP " + resp.status;
       asstMsg.text = asst.bubble.textContent; saveSessions();
-      busy = false; sendBtn.disabled = false; return;
+      return;
     }
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
@@ -582,21 +729,33 @@ async function send() {
       }
     }
   } catch (e) {
-    asst.bubble.textContent = "网络错误：" + e;
+    if (run.stopped) return;
+    asst.bubble.textContent = e && e.name === "AbortError" ? "已打断。" : "网络错误：" + e;
     asstMsg.text = asst.bubble.textContent;
   } finally {
-    asst.bubble.classList.remove("blink");
-    if (!mainText) {
-      if (seenFiles.size > 0) { asst.bubble.style.display = "none"; }
-      else { asst.bubble.textContent = "(无文本输出)"; }
+    const stopped = run.stopped;
+    if (activeRun === run) {
+      activeController = null;
+      activeRun = null;
     }
-    asstMsg.text = mainText;
-    saveSessions();
-    busy = false; sendBtn.disabled = false; inputEl.focus();
+    if (!stopped) {
+      asst.bubble.classList.remove("blink");
+      if (!mainText) {
+        if (seenFiles.size > 0) { asst.bubble.style.display = "none"; }
+        else { asst.bubble.textContent = "(无文本输出)"; }
+      }
+      asstMsg.text = mainText || asstMsg.text;
+      saveSessions();
+      setBusy(false);
+      inputEl.focus();
+      if (shouldAutoContinue(asstMsg.text)) startAutoCountdown();
+    }
   }
 }
 
-sendBtn.addEventListener("click", send);
+sendBtn.addEventListener("click", () => send());
+stopBtn.addEventListener("click", stopCurrentRun);
+autoModeBtn.addEventListener("click", () => setAutoMode(!autoMode));
 inputEl.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
 });
@@ -624,6 +783,10 @@ backdropEl.addEventListener("click", () => setSidebar(false));
 try {
   if (localStorage.getItem(SIDEBAR_KEY) === "1") setSidebar(true);
 } catch (e) {}
+
+try {
+  setAutoMode(localStorage.getItem("awdir_auto_mode_v1") !== "0");
+} catch (e) { setAutoMode(true); }
 
 // 初始化：加载历史会话或创建首个会话
 sessions = loadSessions();
