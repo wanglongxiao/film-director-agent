@@ -333,6 +333,133 @@ class ModelFallbackWrapperTest(unittest.TestCase):
         self.assertFalse(agent._is_model_related_error({"status": "success"}))
 
 
+class VideoReferenceFallbackTest(unittest.TestCase):
+    """视频参考图三级兜底：下载内联 → URL 直引 → 退化为纯文生视频。"""
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    def test_strip_to_text_to_video_removes_media_and_tokens(self):
+        item = {
+            "video_name": "k.mp4",
+            "prompt": "[图1]男主奔跑，穿过[图2]雨夜街道",
+            "first_frame": "http://x/a.png",
+            "reference_images": ["http://x/b.png"],
+            "reference_videos": ["http://x/c.mp4"],
+            "duration": 5,
+        }
+        out = agent._strip_to_text_to_video(item)
+        for field in ("first_frame", "reference_images", "reference_videos"):
+            self.assertNotIn(field, out)
+        self.assertNotIn("[图1]", out["prompt"])
+        self.assertNotIn("[图2]", out["prompt"])
+        self.assertEqual(out["duration"], 5)  # 非素材参数保留
+        self.assertIn("男主奔跑", out["prompt"])
+
+    def test_item_has_reference_media_detection(self):
+        self.assertTrue(agent._item_has_reference_media({"first_frame": "http://x"}))
+        self.assertTrue(agent._item_has_reference_media({"reference_images": ["http://x"]}))
+        self.assertFalse(agent._item_has_reference_media({"prompt": "只有文字"}))
+        self.assertFalse(agent._item_has_reference_media("not a dict"))
+
+    def test_no_reference_media_passes_through_untouched(self):
+        seen = []
+
+        async def raw(params, **kwargs):
+            seen.append([dict(p) for p in params])
+            return {"status": "success", "success_list": [{"k.mp4": "http://v/k.mp4"}]}
+
+        wrapped = agent._wrap_video_generate_with_reference_fallback(raw)
+        params = [{"video_name": "k.mp4", "prompt": "纯文生视频"}]
+        res = self._run(wrapped(params))
+        self.assertEqual(res["status"], "success")
+        self.assertEqual(len(seen), 1)  # 只调用一次，未走兜底
+
+    def test_tier1_downloads_and_inlines_reference_images(self):
+        captured = {}
+
+        async def raw(params, **kwargs):
+            captured["params"] = [dict(p) for p in params]
+            return {"status": "success", "success_list": [{"k.mp4": "http://v/k.mp4"}]}
+
+        # 打桩下载：任意 URL 都成功内联为 data URI。
+        orig = agent._download_as_data_uri
+        agent._download_as_data_uri = lambda url: _async_return(
+            "data:image/png;base64,QUJD")
+        try:
+            wrapped = agent._wrap_video_generate_with_reference_fallback(raw)
+            params = [{
+                "video_name": "k.mp4",
+                "prompt": "[图1]男主定妆照转场",
+                "first_frame": "http://x/pose.png",
+                "reference_images": ["http://x/scene.png"],
+            }]
+            res = self._run(wrapped(params))
+        finally:
+            agent._download_as_data_uri = orig
+        self.assertEqual(res["status"], "success")
+        # first_frame 与 reference_images 都被替换为 data URI（Tier 1 生效）。
+        self.assertTrue(captured["params"][0]["first_frame"].startswith("data:image/"))
+        self.assertTrue(captured["params"][0]["reference_images"][0].startswith("data:image/"))
+
+    def test_tier2_keeps_url_when_download_fails(self):
+        captured = {}
+
+        async def raw(params, **kwargs):
+            captured["params"] = [dict(p) for p in params]
+            return {"status": "success", "success_list": [{"k.mp4": "http://v/k.mp4"}]}
+
+        # 下载失败 → 返回 None → 保留原 URL（Tier 2）。
+        orig = agent._download_as_data_uri
+        agent._download_as_data_uri = lambda url: _async_return(None)
+        try:
+            wrapped = agent._wrap_video_generate_with_reference_fallback(raw)
+            params = [{
+                "video_name": "k.mp4",
+                "prompt": "[图1]场景参考",
+                "reference_images": ["http://x/scene.png"],
+            }]
+            res = self._run(wrapped(params))
+        finally:
+            agent._download_as_data_uri = orig
+        self.assertEqual(res["status"], "success")
+        self.assertEqual(captured["params"][0]["reference_images"], ["http://x/scene.png"])
+
+    def test_tier3_degrades_to_text_to_video_on_failure(self):
+        calls = []
+
+        async def raw(params, **kwargs):
+            calls.append([dict(p) for p in params])
+            # 第一次（带参考图）失败；第二次（纯文生）成功。
+            has_media = any(agent._item_has_reference_media(p) for p in params)
+            if has_media:
+                return {"status": "error", "error_list": ["reference image rejected"]}
+            return {"status": "success", "success_list": [{"k.mp4": "http://v/k.mp4"}]}
+
+        orig = agent._download_as_data_uri
+        agent._download_as_data_uri = lambda url: _async_return(None)  # 下载失败，走 URL
+        try:
+            wrapped = agent._wrap_video_generate_with_reference_fallback(raw)
+            params = [{
+                "video_name": "k.mp4",
+                "prompt": "[图1]男主奔跑",
+                "reference_images": ["http://x/scene.png"],
+            }]
+            res = self._run(wrapped(params))
+        finally:
+            agent._download_as_data_uri = orig
+        self.assertEqual(res["status"], "success")
+        self.assertEqual(len(calls), 2)  # 原始失败 + 文生视频重试
+        self.assertNotIn("reference_images", calls[1][0])  # 第二次已剥离参考素材
+        self.assertIn("reference_fallback_note", res)
+
+
+def _async_return(value):
+    async def _coro():
+        return value
+    return _coro()
+
+
 class AgentRegistrationTest(unittest.TestCase):
     def test_root_agent_registers_all_feature_tools(self):
         names = {getattr(t, "__name__", getattr(t, "name", "")) for t in agent.root_agent.tools}

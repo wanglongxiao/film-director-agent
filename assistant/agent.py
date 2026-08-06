@@ -76,6 +76,21 @@ _VIDEO_FALLBACK_MODELS = [
     "doubao-seedance-1-5-pro-251215",
     "doubao-seedance-1-0-pro-250528",
 ]
+# 视频参考图三级兜底：先下载内联为 base64 → 失败则直接用图片 URL → 视频仍失败则该条退化为纯文生视频。
+_VIDEO_REF_DOWNLOAD_TIMEOUT = float(os.getenv("VEADK_VIDEO_REF_DOWNLOAD_TIMEOUT", "15"))
+_VIDEO_REF_MAX_BYTES = int(os.getenv("VEADK_VIDEO_REF_MAX_BYTES", str(8 * 1024 * 1024)))
+# 参考素材字段：单值图片字段 / 列表图片字段 / 全部参考素材字段（文生视频兜底时整体剥离）。
+_VIDEO_REF_IMAGE_SINGLE_FIELDS = ("first_frame", "last_frame")
+_VIDEO_REF_IMAGE_LIST_FIELDS = ("reference_images",)
+_VIDEO_REF_MEDIA_FIELDS = (
+    "first_frame",
+    "last_frame",
+    "reference_images",
+    "reference_videos",
+    "reference_audios",
+)
+# prompt 中形如 [图1]/[视频2]/[音频1] 的素材引用记号；退化为文生视频时需一并清除。
+_VIDEO_REF_TOKEN_RE = re.compile(r"\[(?:图|视频|音频)\s*\d+\]")
 # 判定“模型相关错误”的关键字（小写匹配）。命中才降级，避免对参数/审核错误误降级。
 _MODEL_ERROR_SIGNS = (
     "modelnotopen",
@@ -148,6 +163,11 @@ INSTRUCTION = """\
   并在回答中说明关键来源与结论。
 - 需要生成分镜概念图、海报、场景参考图时，用 image_generate（Seedream）。
 - 需要生成预告/分镜动态演示时，用 video_generate（Seedance）。
+  【关键镜头一致性】要让视频延续既有的主角定妆照/场景图/分镜参考图时，把这些图的 URL
+  作为参考图传入：起始画面用 first_frame、结束画面用 last_frame、风格/内容参考用
+  reference_images（1-4 张），并在 prompt 里用 [图1][图2] 指代它们。系统会自动按
+  「先下载图片内联使用 → 下载失败则直接引用图片 URL → 视频仍失败则退化为纯文字生成视频」
+  三级兜底，无需你手动处理下载或降级；若最终走了文生视频兜底，请在回复里提醒用户本次未用参考图。
 - 需要产出 Word / PDF / PPT / HTML 等剧本文档时，调用 create_document：
   传入 doc_format（docx/pdf/pptx/html）、filename、content（正文，"# "/"## " 作标题、
   "- " 作要点；pptx 中每个 "# " 起一页；html 也可直接传完整 HTML 字符串）、可选 title。
@@ -283,6 +303,139 @@ def _wrap_with_model_fallback(raw_tool, *, primary_model, fallback_models, kind)
     return _wrapped
 
 
+# --- 视频参考图三级兜底 --------------------------------------------------------
+# 需求：Agent 生成视频时使用参考图片——
+#   1) 优先“下载图片后使用”：把图片抓到本地并内联为 base64 data URI 传给 Seedance；
+#   2) 下载失败/超限则“直接引用图片 URL”交给模型侧自行拉取；
+#   3) 若带参考素材的视频调用仍失败，则该条 param“退化为纯文生视频”作为包底逻辑。
+# Seedance 接口把 first_frame/last_frame/reference_images 作为 image_url.url 传给
+# 方舟，该字段同样接受 data:URI，因此“下载内联”与“URL 直引”对下游是同一入口。
+
+
+def _looks_like_http_url(value) -> bool:
+    return isinstance(value, str) and value.strip().lower().startswith(("http://", "https://"))
+
+
+async def _download_as_data_uri(url: str) -> str | None:
+    """下载图片并内联为 base64 data URI；失败/超限返回 None（回退到直接用 URL）。"""
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(
+            timeout=_VIDEO_REF_DOWNLOAD_TIMEOUT, follow_redirects=True
+        ) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            data = resp.content
+            if not data or len(data) > _VIDEO_REF_MAX_BYTES:
+                logger.warning(
+                    "Reference image not inlined (empty or > %d bytes): %s",
+                    _VIDEO_REF_MAX_BYTES, url,
+                )
+                return None
+            content_type = (resp.headers.get("content-type") or "").split(";")[0].strip()
+            if not content_type.startswith("image/"):
+                content_type = "image/jpeg"
+            import base64
+
+            b64 = base64.b64encode(data).decode("ascii")
+            return f"data:{content_type};base64,{b64}"
+    except Exception as e:  # noqa: BLE001 - 下载失败即回退到直接用 URL
+        logger.warning("Failed to download reference image %s (fallback to URL): %s", url, e)
+        return None
+
+
+async def _inline_reference_images(params: list) -> None:
+    """Tier 1→2：就地把各条 param 的参考图 URL 尽量替换为 base64；下载失败则原样保留 URL。"""
+    for item in params:
+        if not isinstance(item, dict):
+            continue
+        for field in _VIDEO_REF_IMAGE_SINGLE_FIELDS:
+            url = item.get(field)
+            if _looks_like_http_url(url):
+                data_uri = await _download_as_data_uri(url)
+                if data_uri:
+                    item[field] = data_uri
+        for field in _VIDEO_REF_IMAGE_LIST_FIELDS:
+            urls = item.get(field)
+            if isinstance(urls, list):
+                item[field] = [
+                    (await _download_as_data_uri(u)) or u if _looks_like_http_url(u) else u
+                    for u in urls
+                ]
+
+
+def _item_has_reference_media(item) -> bool:
+    if not isinstance(item, dict):
+        return False
+    return any(item.get(field) for field in _VIDEO_REF_MEDIA_FIELDS)
+
+
+def _strip_to_text_to_video(item: dict) -> dict:
+    """Tier 3：把一条带参考素材的 param 退化为纯文生视频（剥离素材 + 清除 [图N] 记号）。"""
+    stripped = {k: v for k, v in item.items() if k not in _VIDEO_REF_MEDIA_FIELDS}
+    prompt = stripped.get("prompt")
+    if isinstance(prompt, str):
+        cleaned = _VIDEO_REF_TOKEN_RE.sub("", prompt)
+        cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+        stripped["prompt"] = cleaned or prompt
+    # 参考图场景不支持的输出参数在纯文生视频下无需保留其限制，交由模型默认处理。
+    return stripped
+
+
+def _wrap_video_generate_with_reference_fallback(video_tool):
+    """在 model-fallback 之外再包一层参考图三级兜底（下载内联 → URL 直引 → 文生视频）。"""
+
+    @functools.wraps(video_tool)
+    async def _wrapped(*args, **kwargs):
+        # 定位 params（位置参数或关键字参数皆可）。
+        params = kwargs.get("params")
+        params_in_kwargs = params is not None
+        if not params_in_kwargs and args:
+            params = args[0]
+        if not isinstance(params, list) or not any(
+            _item_has_reference_media(it) for it in params
+        ):
+            # 无参考素材：直接走原逻辑（含 model-fallback）。
+            return await video_tool(*args, **kwargs)
+
+        # Tier 1→2：尽量把参考图下载内联为 base64；失败的保留原 URL。
+        await _inline_reference_images(params)
+        result = await video_tool(*args, **kwargs)
+
+        # Tier 3：仅当仍失败且确有带参考素材的条目时，退化为纯文生视频重试一次。
+        if not _result_failed(result):
+            return result
+        ref_indices = [i for i, it in enumerate(params) if _item_has_reference_media(it)]
+        if not ref_indices:
+            return result
+
+        logger.warning(
+            "video_generate failed with reference media; retrying %d item(s) as "
+            "text-to-video fallback. errors=%s",
+            len(ref_indices), _stringify_tool_errors(result),
+        )
+        fallback_params = [_strip_to_text_to_video(params[i]) for i in ref_indices]
+        if params_in_kwargs:
+            kwargs["params"] = fallback_params
+            fb_args = args
+        else:
+            fb_args = (fallback_params, *args[1:])
+        fb_result = await video_tool(*fb_args, **kwargs)
+        if isinstance(fb_result, dict) and not _result_failed(fb_result):
+            fb_result["reference_fallback_note"] = (
+                "参考图/参考素材未能被视频模型采用，已自动退化为『纯文字生成视频』作为包底方案完成生成。"
+                "请在回复中简要提醒用户：本次视频未使用参考图。"
+            )
+        return fb_result
+
+    try:
+        _wrapped.__signature__ = inspect.signature(video_tool)
+    except (TypeError, ValueError):
+        pass
+    return _wrapped
+
+
 def _build_tools() -> list:
     tools: list = []
 
@@ -323,6 +476,13 @@ def _build_tools() -> list:
                     fallback_models=cfg["fallbacks"],
                     kind=cfg["kind"],
                 )
+                # video_generate 再包一层参考图三级兜底（下载内联 → URL 直引 → 文生视频）。
+                if name == "video_generate":
+                    tool = _wrap_video_generate_with_reference_fallback(tool)
+                    logger.info(
+                        "Wrapped 'video_generate' with reference-image 3-tier fallback "
+                        "(download→inline / url / text-to-video)."
+                    )
                 logger.info(
                     "Loaded builtin tool '%s' (%s) with primary model '%s' + fallback %s.",
                     name, usage, cfg["primary"], cfg["fallbacks"],
