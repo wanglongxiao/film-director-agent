@@ -628,7 +628,15 @@ function setAutoMode(next) {
 
 function shouldAutoContinue(text) {
   const t = (text || "").replace(/\s+/g, " ");
-  return /输出已截断|单次输出预算|MAX token|token上限|请回复[「“\"]?继续|直接回复[：:]?[`「“\"]?继续|回复\s*[`「“\"]继续|继续第\s*\d+\s*部分|继续后\s*\d+\s*集|继续下一幕/.test(t);
+  // 1) 截断 / 预算 / 分段类硬信号
+  if (/输出已截断|单次输出预算|MAX ?token|token ?上限|继续第\s*\d+\s*部分|继续后\s*\d+\s*集|继续下一[幕步集部]/i.test(t)) return true;
+  // 2) 「请回复 / 直接回复 / 回复 …… 继续」——中间可夹 markdown 星号、引号、空格、冒号
+  if (/(请|直接)?回复[\s`「」“”"':：*_]{0,16}继续/.test(t)) return true;
+  // 3) 收束式提问（通常在结尾）：「先从哪一步继续？」「从哪里继续」「要不要继续」「继续吗？」等
+  const tail = t.slice(-120);
+  if (/(从哪一?步|从哪里|哪一步|要不要|是否|需要我|接下来是否|可以)?\s*继续(创作|生成|下一[幕步集部]|吗|呢)?\s*[？?]/.test(tail)) return true;
+  if (/(从哪一?步|从哪里|哪一步)\s*继续/.test(tail)) return true;
+  return false;
 }
 
 function cancelAutoCountdown() {
