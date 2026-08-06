@@ -196,6 +196,9 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none;
   }
   .att-video-link:hover { text-decoration: underline; }
+  .att-copy-url {
+    margin-top: 6px; font-size: 12px; padding: 4px 10px; border-radius: 8px;
+  }
   .att-doc {
     grid-column: 1 / -1;
     display: flex; align-items: center; gap: 12px; padding: 10px 12px;
@@ -518,12 +521,35 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && lightboxEl.classList.contains("show")) closeLightbox();
 });
 
+// 复制完整 URL（含签名参数）到剪贴板；成功后短暂反馈。
+function copyFullUrl(url, btn) {
+  const done = () => {
+    if (!btn) return;
+    const old = btn.textContent;
+    btn.textContent = "已复制";
+    setTimeout(() => { btn.textContent = old; }, 1500);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(done).catch(() => fallbackCopy(url, done));
+  } else {
+    fallbackCopy(url, done);
+  }
+}
+function fallbackCopy(url, done) {
+  const ta = document.createElement("textarea");
+  ta.value = url; ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand("copy"); done && done(); } catch (e) {}
+  document.body.removeChild(ta);
+}
+
 // 渲染 Agent 生成的文件：图片直接显示、视频可播放、文档预览/下载
 function renderFile(container, f) {
   if (f.kind === "image") {
     const a = document.createElement("a");
     a.className = "att-image-link";
     a.href = f.url; a.target = "_blank"; a.rel = "noopener";
+    a.title = f.url;  // 悬停显示完整签名 URL（不截断）
     const img = document.createElement("img");
     img.className = "att-img"; img.src = f.url; img.alt = f.name || "image";
     img.loading = "lazy";
@@ -546,9 +572,15 @@ function renderFile(container, f) {
     const link = document.createElement("a");
     link.className = "att-video-link";
     link.href = f.url; link.target = "_blank"; link.rel = "noopener";
+    link.title = f.url;  // 悬停显示完整签名 URL（不截断）
     link.textContent = "打开/下载视频：" + (f.name || f.url);
+    const copyBtn = document.createElement("button");
+    copyBtn.type = "button"; copyBtn.className = "secondary att-copy-url";
+    copyBtn.textContent = "复制链接";
+    copyBtn.addEventListener("click", () => copyFullUrl(f.url, copyBtn));
     card.appendChild(v);
     card.appendChild(link);
+    card.appendChild(copyBtn);
     container.appendChild(card);
   } else if (f.kind === "doc") {
     const card = document.createElement("div");

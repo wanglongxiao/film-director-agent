@@ -40,6 +40,7 @@ from veadk.utils.logger import get_logger
 from .continuation_store import continuation_store
 from .document_draft_store import document_draft_store
 from .local_knowledge_store import local_knowledge_store
+from .artifact_store import artifact_store
 
 logger = get_logger(__name__)
 
@@ -202,6 +203,20 @@ INSTRUCTION = """\
 - 需要运行或验证代码（如脚本统计、数据处理、格式转换）时，用 run_code 直接
   在 AgentKit 沙箱执行；较复杂的编码任务可用 coding 发起沙箱编码工作流。
 - 调用工具后，务必用简洁的自然语言向用户说明关键结论，不要只贴原始输出。
+
+【持久化一切有价值信息（务必遵守）】运行过程中产生的所有有价值信息，都要用 save_artifact
+持久化落盘，避免丢失，包含但不限于：
+- 剧本大纲（kind="outline"）、主要人物侧写（kind="character"）、完整细致剧本（kind="script"，
+  可分多条累积写入）；
+- 生成的图片/视频：kind="image"/"video"，content 传该图/视频的描述，url 传生成工具返回的
+  【完整 URL】。需要回看已存产物时用 list_artifacts（可按 kind 过滤或按关键字检索）。
+说明：image_generate/video_generate 成功后系统已自动把媒体的完整 URL 落盘，你仍应为其补充
+有意义的中文描述（用 save_artifact 传相同 url + 描述，会就地更新该条而非重复）。
+
+【URL 绝不截断（务必遵守）】凡是展示、引用、落盘图片/视频的公网 URL，都必须使用【完整 URL】，
+包含 ? 之后的全部签名参数（如 X-Tos-Algorithm / X-Tos-Credential / X-Tos-Date / X-Tos-Expires
+/ X-Tos-Signature / X-Tos-SignedHeaders）。严禁省略、缩短、加省略号或只保留问号前半段——
+截断后的 URL 会因签名缺失而无法访问，也无法在 Web UI 播放器中播放。
 """
 
 
@@ -226,6 +241,40 @@ def _stringify_tool_errors(result: dict) -> str:
 def _result_failed(result) -> bool:
     """image_generate/video_generate 以返回值（而非异常）暴露错误。"""
     return isinstance(result, dict) and result.get("status") in ("error", "failed")
+
+
+def _persist_media_artifacts(kind: str, tool_context, result) -> None:
+    """成功生成后，自动把每个媒体产物的『完整 URL + 名称/描述』落盘到 artifact_store。
+
+    不依赖模型主动记忆 —— 只要 image_generate/video_generate 成功返回，就在包装层
+    自动抓取 success_list（[{name: url}, ...]）里的每条完整 URL 持久化。URL 原样整段
+    保存，绝不截断签名参数。抓取失败绝不影响主流程。
+    """
+    if tool_context is None or not isinstance(result, dict):
+        return
+    if _result_failed(result):
+        return
+    try:
+        app_name, user_id, session_id = _draft_ids(tool_context)
+    except Exception:  # noqa: BLE001
+        return
+    for item in result.get("success_list") or []:
+        if not isinstance(item, dict):
+            continue
+        for name, url in item.items():
+            if isinstance(url, str) and url.startswith("http"):
+                try:
+                    artifact_store.save(
+                        app_name=app_name,
+                        user_id=user_id,
+                        session_id=session_id,
+                        kind=kind,
+                        title=str(name),
+                        content=str(name),
+                        url=url,  # 完整 URL，含 X-Tos-* 签名参数，不截断
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("persist %s artifact failed (ignored): %s", kind, e)
 
 
 def _is_model_related_error(result) -> bool:
@@ -264,6 +313,15 @@ def _wrap_with_model_fallback(raw_tool, *, primary_model, fallback_models, kind)
 
     @functools.wraps(raw_tool)
     async def _wrapped(*args, **kwargs):
+        # 图片/视频产物统一在此层成功后自动持久化完整 URL（不依赖模型主动记忆）。
+        artifact_kind = "video" if "视频" in kind else "image"
+        tool_context = kwargs.get("tool_context")
+        if tool_context is None and args:
+            # ADK 以关键字传 tool_context，这里兜底从位置参数尾部尝试识别。
+            tool_context = next(
+                (a for a in args if hasattr(a, "session") and hasattr(a, "user_id")),
+                None,
+            )
         chain = _build_model_chain(
             kwargs.get("model_name"), primary_model, fallback_models
         )
@@ -285,6 +343,7 @@ def _wrap_with_model_fallback(raw_tool, *, primary_model, fallback_models, kind)
                         "%s downgraded to '%s' and succeeded (attempt %s).",
                         kind, model, idx + 1,
                     )
+                _persist_media_artifacts(artifact_kind, tool_context, result)
                 return result
 
             # 失败：仅当是“模型相关错误”且仍有候选时才继续降级。
@@ -587,6 +646,91 @@ def search_local_knowledge(
 def _draft_ids(tool_context: ToolContext) -> tuple[str, str, str]:
     session = tool_context.session
     return session.app_name, tool_context.user_id, session.id
+
+
+def save_artifact(
+    kind: str,
+    content: str = "",
+    title: str = "",
+    url: str = "",
+    tool_context: ToolContext | None = None,
+) -> dict:
+    """Persist any valuable creation artifact to local sqlite so nothing is lost.
+
+    Use this to durably store everything worth keeping during a run, including but
+    not limited to: the script outline, main-character profiles, and the full detailed
+    script; and the description + FULL URL of every generated image/video.
+
+    IMPORTANT: when saving an image/video, pass the COMPLETE url returned by the
+    generation tool, including all query/signature parameters (e.g. ?X-Tos-Algorithm
+    =...&X-Tos-Signature=...&X-Tos-SignedHeaders=host). NEVER shorten, ellipsize, or
+    strip the query string — a truncated URL is unusable.
+
+    Args:
+        kind: One of "outline" (剧本大纲), "character" (人物侧写), "script" (完整剧本),
+            "image" (生成图片), "video" (生成视频), "note" (其它有价值信息).
+        content: The text to save (outline text, profile, script chunk, or media
+            description). For media, a short description of what the image/video shows.
+        title: Optional short label.
+        url: For image/video artifacts, the COMPLETE signed URL (do not truncate).
+    Returns:
+        A dict with ok/id/kind and running stats of stored artifacts.
+    """
+    if tool_context is None:
+        return {"ok": False, "message": "tool_context missing"}
+    app_name, user_id, session_id = _draft_ids(tool_context)
+    saved_id = artifact_store.save(
+        app_name=app_name,
+        user_id=user_id,
+        session_id=session_id,
+        kind=kind,
+        title=title or "",
+        content=content or "",
+        url=url or "",
+    )
+    if saved_id is None:
+        return {"ok": False, "message": "empty content and url"}
+    stats = artifact_store.stats(
+        app_name=app_name, user_id=user_id, session_id=session_id
+    )
+    return {"ok": True, "store": "sqlite", "id": saved_id,
+            "kind": kind, "stats": stats}
+
+
+def list_artifacts(
+    kind: str = "",
+    query: str = "",
+    limit: int = 50,
+    tool_context: ToolContext | None = None,
+) -> dict:
+    """List / search persisted artifacts of this session (outline/profiles/script/media).
+
+    Returns each artifact with its FULL url intact (signature params preserved).
+
+    Args:
+        kind: Optional filter — one of outline/character/script/image/video/note.
+        query: Optional keyword to search title/content/url; overrides kind filter.
+        limit: Max results (1-500 for list; 1-100 for search).
+    Returns:
+        A dict with ok/store/results and overall stats.
+    """
+    if tool_context is None:
+        return {"ok": False, "message": "tool_context missing"}
+    app_name, user_id, session_id = _draft_ids(tool_context)
+    if (query or "").strip():
+        results = artifact_store.search(
+            app_name=app_name, user_id=user_id, session_id=session_id,
+            query=query, limit=limit,
+        )
+    else:
+        results = artifact_store.list(
+            app_name=app_name, user_id=user_id, session_id=session_id,
+            kind=kind or "", limit=limit,
+        )
+    stats = artifact_store.stats(
+        app_name=app_name, user_id=user_id, session_id=session_id
+    )
+    return {"ok": True, "store": "sqlite", "results": results, "stats": stats}
 
 
 def draft_add_section(
@@ -1323,6 +1467,8 @@ root_agent = Agent(
         *_build_tools(),
         save_local_knowledge,
         search_local_knowledge,
+        save_artifact,
+        list_artifacts,
         draft_add_section,
         draft_add_image,
         draft_status,
