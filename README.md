@@ -173,16 +173,12 @@ A single "one-shot" LLM call can't do it — you need:
 
 ## 4. Underlying framework & models
 
-### 4.1 Framework: VeADK + Google ADK + AgentKit
+### 4.1 Framework: VeADK  + AgentKit
 
 - **[VeADK](https://github.com/volcengine/veadk-python)** — Volcengine Agent
   Development Kit. Extends Google ADK with Volcengine-native goodies:
   Doubao / Seedream / Seedance builtin tools, sandbox integration, memory
   backends, and the AgentKit deploy pipeline.
-- **[Google ADK](https://github.com/google/adk-python)** — provides `Agent`,
-  `Runner`, session service, event stream, tool contracts, model-callback
-  hooks (`before_model_callback` / `after_model_callback` /
-  `on_model_error_callback`) and the `App`-level events-compaction config.
 - **[Volcengine AgentKit](https://www.volcengine.com/product/AgentKit)** —
   the runtime & tooling that hosts the agent as a service: `AgentkitAgentServerApp`
   wraps the ADK app into a HTTP server (`/list-apps` / `/run` / `/run_sse`
@@ -237,7 +233,7 @@ film-director-agent/
 └── src/aw_director_agent/          # Console-script entry (project rename bookkeeping)
 ```
 
-> **Not in the public repo (kept locally by `.gitignore`):**
+> **Not in the public repo (kept locally by** **`.gitignore`):**
 > `.agentkit/agentkit.yaml`, `.github/workflows/deploy.yml`, `Dockerfile`,
 > `.dockerignore`, `pyproject.toml`, `uv.lock`, `.python-version` — these encode
 > private deploy identifiers and container plumbing specific to the maintainer's
@@ -426,16 +422,16 @@ The repo ships a **fully offline** unit-test suite (Python standard-library
 `unittest` — no pytest, no network, no Volcengine credentials, no sandbox). It
 covers the director-assistant capabilities end-to-end at the logic level:
 
-| Area | What is verified |
-| ---- | ---------------- |
-| Long-script + mixed image/text docs | Incremental draft store: per-draft sequence, stats, ordered image/text interleave in assembled HTML, page breaks, HTML-escaping (injection safety) |
-| Poster / scene / storyboard images & key-shot videos | `_files_from_tool_response` turns `image_generate` / `video_generate` / doc results into UI `file` events (image / video / doc / extension-fallback) |
-| Image/video consistency pipeline | `image_generate` / `video_generate` auto model-fallback wrapper: only *model-related* errors downgrade; the draft workflow keeps figure order deterministic |
-| Mixed PDF / Word long-script generation | `draft_add_section` → `draft_add_image` → `draft_build_document` assembles HTML server-side and delegates to `create_document`; bad formats normalize to pdf |
-| History sessions | `/api/config` labels, `/api/file` path-guard + inline/attachment disposition (ASGITransport route tests) |
-| Send / Stop rollback & auto-continue | Per-turn output-budget guards, `MAX_TOKENS` → `auto_continue_generation` function-call, stop after max steps, checkpoint store |
-| Auto vs. non-auto mode & agent long-run | Budget callbacks, continuation checkpoints, disabled-retrieval-tool stripping, tool registration completeness |
-| Secret hygiene | `/api/config` never leaks the cloud key; sandbox reads refuse to hit the network without credentials |
+| Area                                                 | What is verified                                                                                                                                             |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Long-script + mixed image/text docs                  | Incremental draft store: per-draft sequence, stats, ordered image/text interleave in assembled HTML, page breaks, HTML-escaping (injection safety)           |
+| Poster / scene / storyboard images & key-shot videos | `_files_from_tool_response` turns `image_generate` / `video_generate` / doc results into UI `file` events (image / video / doc / extension-fallback)         |
+| Image/video consistency pipeline                     | `image_generate` / `video_generate` auto model-fallback wrapper: only *model-related* errors downgrade; the draft workflow keeps figure order deterministic  |
+| Mixed PDF / Word long-script generation              | `draft_add_section` → `draft_add_image` → `draft_build_document` assembles HTML server-side and delegates to `create_document`; bad formats normalize to pdf |
+| History sessions                                     | `/api/config` labels, `/api/file` path-guard + inline/attachment disposition (ASGITransport route tests)                                                     |
+| Send / Stop rollback & auto-continue                 | Per-turn output-budget guards, `MAX_TOKENS` → `auto_continue_generation` function-call, stop after max steps, checkpoint store                               |
+| Auto vs. non-auto mode & agent long-run              | Budget callbacks, continuation checkpoints, disabled-retrieval-tool stripping, tool registration completeness                                                |
+| Secret hygiene                                       | `/api/config` never leaks the cloud key; sandbox reads refuse to hit the network without credentials                                                         |
 
 Run it locally:
 

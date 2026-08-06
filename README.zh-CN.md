@@ -141,7 +141,7 @@ SSE 流式返回 `text` / `thought` / `tool_call` / `file` 事件。前端把模
 导演一部视听作品是**长流程、多模态、多工具串联**的活。一次性 LLM 调用做不到——
 你需要：
 
-| 痛点                      | 朴素 LLM 聊天为何崩      | film-director-agent 如何解决                                       |
+| 痛点                      | 朴素 LLM 聊天为何崩      | film-director-agent 如何解决                                        |
 | ----------------------- | ----------------- | --------------------------------------------------------------- |
 | 长文本生成在 MAX\_TOKENS 处被截断 | 回复半句话结束，无法续写      | 单轮输出预算 + 自动续写 + 本地 SQLite checkpoint                            |
 | 聊天历史膨胀 → 上下文溢出          | 几轮后 LLM 400 / OOM | ADK `App` 滑动窗口压缩（token & 事件阈值触发）                                |
@@ -154,15 +154,11 @@ SSE 流式返回 `text` / `thought` / `tool_call` / `file` 事件。前端把模
 
 ## 4. 使用的 Agent 框架与模型
 
-### 4.1 框架：VeADK + Google ADK + AgentKit
+### 4.1 框架：VeADK +  AgentKit
 
 - **[VeADK](https://github.com/volcengine/veadk-python)** —— 火山引擎 Agent
   Development Kit。在 Google ADK 之上做了火山原生扩展：豆包 / Seedream /
   Seedance 内置工具、沙箱集成、多种 memory 后端，以及 AgentKit 部署链路。
-- **[Google ADK](https://github.com/google/adk-python)** —— 提供 `Agent`、
-  `Runner`、Session Service、事件流、工具契约、模型回调
-  （`before_model_callback` / `after_model_callback` /
-  `on_model_error_callback`）与 `App` 级事件压缩配置。
 - **[Volcengine AgentKit](https://www.volcengine.com/product/AgentKit)** ——
   托管 Agent 的运行时与工具链：`AgentkitAgentServerApp` 把 ADK app 包成 HTTP
   服务（`/list-apps` / `/run` / `/run_sse` + 会话 / 产物管理）；`agentkit deploy`
@@ -215,7 +211,7 @@ film-director-agent/
 └── src/aw_director_agent/          # 命令行入口（项目改名的账本）
 ```
 
-> **不在公开仓库中（本地保留，通过 `.gitignore` 忽略）：**
+> **不在公开仓库中（本地保留，通过** **`.gitignore`** **忽略）：**
 > `.agentkit/agentkit.yaml`、`.github/workflows/deploy.yml`、`Dockerfile`、
 > `.dockerignore`、`pyproject.toml`、`uv.lock`、`.python-version` —— 这些文件里
 > 含有作者环境的部署 id 与容器细节。（离线的 `tests.yml` CI workflow **是**公开的。）
@@ -389,16 +385,16 @@ agentkit deploy
 仓库自带一套**完全离线**的单元测试套件（Python 标准库 `unittest`——不依赖
 pytest、网络、火山凭证或沙箱），在逻辑层端到端覆盖导演助手的各项能力：
 
-| 领域 | 验证点 |
-| ---- | ---- |
-| 长剧本 + 图文混排文档 | 增量草稿 store：按 draft 自增序号、统计、组装 HTML 时图文按序穿插、分页符、HTML 转义（防注入） |
-| 定妆照 / 场景图 / 分镜图 & 关键镜头视频 | `_files_from_tool_response` 把 `image_generate` / `video_generate` / 文档结果转成 UI `file` 事件（图片 / 视频 / 文档 / 后缀兜底） |
-| 图片/视频一致性流水线 | `image_generate` / `video_generate` 自动模型降级包装器：仅「模型相关错误」才降级；草稿流保证图序确定 |
-| 图文混排 PDF / Word 长剧本生成 | `draft_add_section` → `draft_add_image` → `draft_build_document` 服务端组装 HTML 并委托 `create_document`；坏格式归一化为 pdf |
-| 历史会话 | `/api/config` 标签、`/api/file` 路径守卫 + inline/attachment 头（ASGITransport 路由测试） |
-| 发送 / 停止回滚 & 自动续写 | 单轮输出预算守护、`MAX_TOKENS` → `auto_continue_generation` function-call、超步数停止、checkpoint store |
-| 自动 / 非自动模式 & agent 长跑 | 预算回调、续写 checkpoint、禁用检索工具剥离、工具注册完整性 |
-| 密钥保护 | `/api/config` 从不泄露云端 key；缺凭证时沙箱读取拒绝联网 |
+| 领域                       | 验证点                                                                                                           |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| 长剧本 + 图文混排文档             | 增量草稿 store：按 draft 自增序号、统计、组装 HTML 时图文按序穿插、分页符、HTML 转义（防注入）                                                   |
+| 定妆照 / 场景图 / 分镜图 & 关键镜头视频 | `_files_from_tool_response` 把 `image_generate` / `video_generate` / 文档结果转成 UI `file` 事件（图片 / 视频 / 文档 / 后缀兜底）  |
+| 图片/视频一致性流水线              | `image_generate` / `video_generate` 自动模型降级包装器：仅「模型相关错误」才降级；草稿流保证图序确定                                          |
+| 图文混排 PDF / Word 长剧本生成    | `draft_add_section` → `draft_add_image` → `draft_build_document` 服务端组装 HTML 并委托 `create_document`；坏格式归一化为 pdf |
+| 历史会话                     | `/api/config` 标签、`/api/file` 路径守卫 + inline/attachment 头（ASGITransport 路由测试）                                   |
+| 发送 / 停止回滚 & 自动续写         | 单轮输出预算守护、`MAX_TOKENS` → `auto_continue_generation` function-call、超步数停止、checkpoint store                       |
+| 自动 / 非自动模式 & agent 长跑    | 预算回调、续写 checkpoint、禁用检索工具剥离、工具注册完整性                                                                           |
+| 密钥保护                     | `/api/config` 从不泄露云端 key；缺凭证时沙箱读取拒绝联网                                                                         |
 
 本地运行：
 
