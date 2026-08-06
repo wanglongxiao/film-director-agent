@@ -27,6 +27,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import veadk.config
 from veadk.config import getenv
 from veadk.integrations.ve_faas.ve_faas import VeFaaS
 
@@ -56,8 +57,14 @@ def main() -> None:
 
         cloud_resource = _json.loads(route["CloudResource"])
         fn_id = cloud_resource["framework"]["function"]["Id"]
+        # 对已有应用更新时，显式把当前 .env 合并进函数环境变量；
+        # 否则新增的 WEBUI_ACCESS_PASSWORD 之类配置不会随代码 bundle 更新。
+        env_overrides = dict(veadk.config.veadk_environments)
         url = faas.update_application_code_bundle(
-            application_id=existing, function_id=fn_id, path=str(HERE)
+            application_id=existing,
+            function_id=fn_id,
+            path=str(HERE),
+            environment_overrides=env_overrides,
         )
         app_id = existing
     else:
