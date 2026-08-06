@@ -96,9 +96,9 @@ shows a 10-second countdown banner; if nobody intervenes, it auto-sends
 "continue" and keeps the pipeline moving. Any user interaction cancels the
 pending auto-continue immediately and returns control to the operator.
 
-<video src="docs/screenshots/00-autorun.mp4" controls playsinline muted preload="metadata" style="width:100%;max-width:1100px;border-radius:12px;"></video>
+Demo Video: [00-autorun.mp4](https://raw.githubusercontent.com/wanglongxiao/film-director-agent/main/docs/screenshots/00-autorun.mp4)
 
-The clip above shows the real Auto-mode behavior: a long task reaches a
+This clip shows the real Auto-mode behavior: a long task reaches a
 "continue" boundary, the countdown banner appears, and the UI resumes execution
 automatically without manual babysitting.
 

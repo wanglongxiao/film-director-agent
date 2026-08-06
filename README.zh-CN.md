@@ -85,9 +85,9 @@ Development Kit）构建、以 **AgentKit Runtime** 形式发布的「导演助�
 “剧本 + 图片/视频 + 图文混编文档”这类长链路任务连续跑完。任意用户交互都会立即取消自动续写，
 把控制权交还给你。
 
-<video src="docs/screenshots/00-autorun.mp4" controls playsinline muted preload="metadata" style="width:100%;max-width:1100px;border-radius:12px;"></video>
+Demo Video: [00-autorun.mp4](https://raw.githubusercontent.com/wanglongxiao/film-director-agent/main/docs/screenshots/00-autorun.mp4)
 
-上面这段录屏展示了自动模式的真实运行效果：Agent 在长任务中进入“等待继续”时，UI 自动倒计时，
+这段录屏展示了自动模式的真实运行效果：Agent 在长任务中进入“等待继续”时，UI 自动倒计时，
 随后自动续跑，无需人工守在屏幕前点“继续”。
 
 ### 2.2 Web UI 总览——聊天 + 历史侧栏
