@@ -543,6 +543,28 @@ function fallbackCopy(url, done) {
   document.body.removeChild(ta);
 }
 
+async function downloadDoc(url, name, btn) {
+  const old = btn ? btn.textContent : "";
+  if (btn) btn.textContent = "下载中";
+  const finalUrl = url + (url.indexOf("?") >= 0 ? "&" : "?") + "download=1";
+  try {
+    const resp = await fetch(finalUrl, { credentials: "same-origin" });
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const blob = await resp.blob();
+    const obj = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = obj; a.download = name || "";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(obj), 5000);
+    if (btn) btn.textContent = "已下载";
+  } catch (e) {
+    if (btn) btn.textContent = "打开中";
+    window.open(finalUrl, "_blank", "noopener");
+  } finally {
+    if (btn) setTimeout(() => { btn.textContent = old; }, 1500);
+  }
+}
+
 // 渲染 Agent 生成的文件：图片直接显示、视频可播放、文档预览/下载
 function renderFile(container, f) {
   if (f.kind === "image") {
@@ -607,13 +629,23 @@ function renderFile(container, f) {
       });
       card.appendChild(prev);
       const dl = document.createElement("a");
-      dl.textContent = "下载"; dl.href = f.url + "&download=1"; dl.setAttribute("download", f.name || "");
+      dl.textContent = "下载"; dl.href = f.url + (f.url.indexOf("?") >= 0 ? "&" : "?") + "download=1";
+      dl.setAttribute("download", f.name || "");
+      dl.addEventListener("click", (e) => {
+        e.preventDefault();
+        downloadDoc(f.url, f.name, dl);
+      });
       card.appendChild(dl);
       container.appendChild(card);
       container.appendChild(wrap);
     } else {
       const dl = document.createElement("a");
-      dl.textContent = "下载"; dl.href = f.url; dl.setAttribute("download", f.name || "");
+      dl.textContent = "下载"; dl.href = f.url;
+      dl.setAttribute("download", f.name || "");
+      dl.addEventListener("click", (e) => {
+        e.preventDefault();
+        downloadDoc(f.url, f.name, dl);
+      });
       card.appendChild(dl);
       container.appendChild(card);
     }

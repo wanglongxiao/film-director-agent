@@ -17,6 +17,8 @@ Covers the Web-UI-facing behavior:
 from __future__ import annotations
 
 import asyncio
+import os
+import tempfile
 import unittest
 
 import tests._helpers  # noqa: F401  (sys.path setup so `import server` works)
@@ -235,6 +237,40 @@ class ApiFileRouteTest(unittest.TestCase):
         finally:
             sandbox_files.read_sandbox_file = orig
         self.assertEqual(r.status_code, 404)
+
+    def test_cache_doc_from_sandbox_writes_local_file_and_returns_public_url(self):
+        import sandbox_files
+        orig_reader = sandbox_files.read_sandbox_file
+        orig_dir = server._DOC_CACHE_DIR
+        tmpdir = tempfile.mkdtemp(prefix="webui-doc-cache-")
+        sandbox_files.read_sandbox_file = lambda **kw: {
+            "ok": True, "path": kw["path"], "size": 2, "data": b"DX"}
+        server._DOC_CACHE_DIR = tmpdir
+        try:
+            res = _run(server._cache_doc_from_sandbox(
+                "/home/gem/veadk_docs/a.docx", "u1", "s1"
+            ))
+        finally:
+            sandbox_files.read_sandbox_file = orig_reader
+            server._DOC_CACHE_DIR = orig_dir
+        self.assertTrue(res["ok"])
+        self.assertTrue(res["url"].startswith("/artifacts/"))
+        self.assertTrue(os.path.isfile(res["path"]))
+
+    def test_cached_doc_route_serves_attachment(self):
+        orig_dir = server._DOC_CACHE_DIR
+        tmpdir = tempfile.mkdtemp(prefix="webui-doc-cache-")
+        server._DOC_CACHE_DIR = tmpdir
+        path = server._write_cached_doc("/home/gem/veadk_docs/a.docx", "u1", "s1", b"DX")
+        doc_id, fname, _ = server._cache_doc_paths("/home/gem/veadk_docs/a.docx", "u1", "s1")
+        self.assertTrue(os.path.isfile(path))
+        try:
+            r = _run(_get(server.app, f"/artifacts/{doc_id}/{fname}"))
+        finally:
+            server._DOC_CACHE_DIR = orig_dir
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.headers["content-disposition"].startswith("attachment"))
+        self.assertEqual(r.content, b"DX")
 
 
 class ApiVideoProxyRouteTest(unittest.TestCase):

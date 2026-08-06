@@ -34,6 +34,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from typing import Optional
@@ -65,6 +66,7 @@ _DOC_MIME = {
 }
 # PDF/HTML 可在浏览器内联预览，其余走下载
 _INLINE_FMTS = {"pdf", "html"}
+_DOC_CACHE_DIR = os.getenv("WEBUI_DOC_CACHE_DIR", "/tmp/aw_director_doc_cache")
 
 # --- 目标 Agent 配置 --------------------------------------------------------
 _DEFAULT_CLOUD_BASE = "https://so8ldqr2sttae5hejrvrv.apigateway-cn-beijing.volceapi.com"
@@ -102,6 +104,86 @@ def _target_conf(target: str) -> dict:
 
 def _auth_headers(api_key: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {api_key}"} if api_key else {}
+
+
+def _doc_download_qs(url: str) -> str:
+    return "&download=1" if "?" in url else "?download=1"
+
+
+def _build_doc_api_url(path: str, user_id: str, session_id: str, fmt: str) -> str:
+    qs = (
+        f"path={quote(path)}&user_id={quote(user_id)}"
+        f"&session_id={quote(session_id)}&fmt={quote(fmt)}"
+    )
+    return f"/api/file?{qs}"
+
+
+def _cache_doc_id(path: str, user_id: str, session_id: str) -> str:
+    raw = f"{SANDBOX_AGENT_NAME}\n{user_id}\n{session_id}\n{path}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+
+
+def _cache_doc_paths(path: str, user_id: str, session_id: str) -> tuple[str, str, str]:
+    fname = os.path.basename(path)
+    doc_id = _cache_doc_id(path, user_id, session_id)
+    cache_dir = os.path.join(_DOC_CACHE_DIR, doc_id)
+    return doc_id, fname, os.path.join(cache_dir, fname)
+
+
+def _cached_doc_url(path: str, user_id: str, session_id: str) -> str:
+    doc_id, fname, _ = _cache_doc_paths(path, user_id, session_id)
+    return f"/artifacts/{quote(doc_id)}/{quote(fname)}"
+
+
+def _write_cached_doc(path: str, user_id: str, session_id: str, data: bytes) -> str:
+    _, _, cache_path = _cache_doc_paths(path, user_id, session_id)
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    with open(cache_path, "wb") as f:
+        f.write(data)
+    return cache_path
+
+
+def _doc_response_headers(path: str, fmt: str, download: int = 0) -> dict[str, str]:
+    fname = os.path.basename(path)
+    inline = (fmt in _INLINE_FMTS) and not download
+    disp = "inline" if inline else "attachment"
+    return {
+        "Content-Disposition": f"{disp}; filename*=UTF-8''{quote(fname)}",
+        "Cache-Control": "no-store",
+    }
+
+
+async def _cache_doc_from_sandbox(path: str, user_id: str, session_id: str) -> dict:
+    doc_id, fname, cache_path = _cache_doc_paths(path, user_id, session_id)
+    if os.path.exists(cache_path):
+        return {
+            "ok": True,
+            "doc_id": doc_id,
+            "name": fname,
+            "path": cache_path,
+            "url": _cached_doc_url(path, user_id, session_id),
+            "cached": True,
+        }
+    res = await run_in_threadpool(
+        sandbox_files.read_sandbox_file,
+        path=path,
+        agent_name=SANDBOX_AGENT_NAME,
+        user_id=user_id,
+        session_id=session_id,
+    )
+    if not res.get("ok"):
+        return {"ok": False, "error": res.get("error", "file not found")}
+    cache_path = await run_in_threadpool(
+        _write_cached_doc, path, user_id, session_id, res["data"]
+    )
+    return {
+        "ok": True,
+        "doc_id": doc_id,
+        "name": fname,
+        "path": cache_path,
+        "url": _cached_doc_url(path, user_id, session_id),
+        "cached": True,
+    }
 
 
 app = FastAPI(title="aw-director-agent Web UI (BFF)")
@@ -219,7 +301,7 @@ async def api_chat(request: Request):
                             ev = json.loads(raw)
                         except Exception:  # noqa: BLE001
                             continue
-                        for chunk in _extract_chunks(ev, user_id, session_id):
+                        async for chunk in _extract_chunks_async(ev, user_id, session_id):
                             yield _sse(chunk)
                 yield _sse({"type": "done"})
             except Exception as e:  # noqa: BLE001
@@ -262,13 +344,8 @@ def _files_from_tool_response(name: str, resp: dict, user_id: str, session_id: s
         path = resp["path"]
         fmt = (resp.get("fmt") or path.rsplit(".", 1)[-1]).lower()
         fname = os.path.basename(path)
-        # 让前端通过本层 /api/file 拉取（携带同一会话上下文以定位沙箱）
-        qs = (
-            f"path={quote(path)}&user_id={quote(user_id)}"
-            f"&session_id={quote(session_id)}&fmt={quote(fmt)}"
-        )
         yield {"type": "file", "kind": "doc", "fmt": fmt, "name": fname,
-               "url": f"/api/file?{qs}"}
+               "url": _build_doc_api_url(path, user_id, session_id, fmt)}
 
     # 4) 兜底：任意字符串型 URL 且带媒体后缀
     for v in resp.values():
@@ -311,6 +388,80 @@ def _extract_chunks(ev: dict, user_id: str = "", session_id: str = ""):
                 yield file_ev
 
 
+async def _files_from_tool_response_async(name: str, resp: dict, user_id: str, session_id: str):
+    """异步版：文档优先缓存到 Web UI 服务器本地目录，再给前端稳定可访问 URL。"""
+    if not isinstance(resp, dict):
+        return
+
+    if "success_list" in resp:
+        media_kind = "video" if name == "video_generate" else "image"
+        for item in resp.get("success_list") or []:
+            if isinstance(item, dict):
+                for fname, url in item.items():
+                    if isinstance(url, str) and url.startswith("http"):
+                        yield {"type": "file", "kind": media_kind, "url": url, "name": fname}
+
+    vurl = resp.get("video_url")
+    if isinstance(vurl, str) and vurl.startswith("http"):
+        yield {
+            "type": "file",
+            "kind": "video",
+            "url": vurl,
+            "name": os.path.basename(vurl.split("?")[0]) or "video.mp4",
+        }
+
+    if resp.get("ok") and resp.get("path") and str(resp["path"]).startswith(_DOC_DIR):
+        path = resp["path"]
+        fmt = (resp.get("fmt") or path.rsplit(".", 1)[-1]).lower()
+        fname = os.path.basename(path)
+        fallback_url = _build_doc_api_url(path, user_id, session_id, fmt)
+        try:
+            cached = await _cache_doc_from_sandbox(path, user_id, session_id)
+        except Exception:  # noqa: BLE001
+            cached = {"ok": False}
+        yield {
+            "type": "file",
+            "kind": "doc",
+            "fmt": fmt,
+            "name": fname,
+            "url": cached.get("url") or fallback_url,
+        }
+
+    for v in resp.values():
+        if isinstance(v, str) and v.startswith("http"):
+            low = v.split("?")[0].lower()
+            if low.endswith(_IMG_EXT):
+                yield {"type": "file", "kind": "image", "url": v, "name": os.path.basename(low)}
+            elif low.endswith(_VID_EXT):
+                yield {"type": "file", "kind": "video", "url": v, "name": os.path.basename(low)}
+
+
+async def _extract_chunks_async(ev: dict, user_id: str = "", session_id: str = ""):
+    """异步版 SSE 片段提取：文档结果在派发给前端前预拉取到本地缓存。"""
+    content = ev.get("content") or {}
+    parts = content.get("parts") or []
+    partial = bool(ev.get("partial"))
+    for p in parts:
+        if p.get("text"):
+            yield {
+                "type": "thought" if p.get("thought") else "text",
+                "text": p["text"],
+                "partial": partial,
+            }
+        fc = p.get("functionCall") or p.get("function_call")
+        if fc:
+            yield {"type": "tool_call", "name": fc.get("name", "?")}
+        fr = p.get("functionResponse") or p.get("function_response")
+        if fr:
+            fname = fr.get("name", "?")
+            yield {"type": "tool_result", "name": fname}
+            resp = fr.get("response") or {}
+            async for file_ev in _files_from_tool_response_async(
+                fname, resp, user_id, session_id
+            ):
+                yield file_ev
+
+
 def _sse(obj: dict) -> str:
     return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
 
@@ -343,15 +494,24 @@ async def api_file(
         raise HTTPException(status_code=404, detail=res.get("error", "file not found"))
 
     media_type = _DOC_MIME.get(fmt, "application/octet-stream")
-    fname = os.path.basename(path)
-    # PDF/HTML 默认内联预览；docx/pptx 或显式 download=1 走附件下载。
-    inline = (fmt in _INLINE_FMTS) and not download
-    disp = "inline" if inline else "attachment"
-    headers = {
-        "Content-Disposition": f"{disp}; filename*=UTF-8''{quote(fname)}",
-        "Cache-Control": "no-store",
-    }
+    # 兼容旧链接：实时读取成功后顺手缓存到本地目录，后续改走稳定 /artifacts/* URL。
+    await run_in_threadpool(_write_cached_doc, path, user_id, session_id, res["data"])
+    headers = _doc_response_headers(path, fmt, download)
     return Response(content=res["data"], media_type=media_type, headers=headers)
+
+
+@app.get("/artifacts/{doc_id}/{fname}")
+async def api_cached_doc(doc_id: str, fname: str, download: int = 0):
+    """直接从 Web UI 云端本地缓存目录返回文档，避免每次点击都回源到 sandbox。"""
+    path = os.path.join(_DOC_CACHE_DIR, doc_id, fname)
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="cached file not found")
+    fmt = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
+    return FileResponse(
+        path,
+        media_type=_DOC_MIME.get(fmt, "application/octet-stream"),
+        headers=_doc_response_headers(path, fmt, download),
+    )
 
 
 @app.get("/api/video-proxy")
