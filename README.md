@@ -65,6 +65,21 @@ Strict guarantees enforced in the system instruction:
 - **Local ↔ Cloud switch**: one dropdown targets either the local ADK
   (`http://127.0.0.1:8000`, app=`assistant`) or the deployed AgentKit runtime
   (`app=movie_script_agent`). Health status shown live.
+- **Auto mode (unattended long runs)**: for long jobs that need many continuation
+  turns (script + storyboards + image/video + a mixed image-and-text PDF), flip the
+  top **"Auto"** toggle. Whenever the agent stops at `MAX_TOKENS` or wraps a stage
+  and asks you to "reply continue", the UI shows a **10-second countdown** banner;
+  if nobody acts before it expires, it auto-sends "继续" (continue) so the long task
+  runs to completion hands-free.
+  - **Interruptible anytime**: any interaction during the countdown (focusing the
+    input, hitting stop, switching sessions, …) **immediately cancels** the pending
+    auto-continue and hands control back to you.
+  - **Continuation detection**: the frontend `shouldAutoContinue()` uses a lenient
+    regex to catch "continue" signals wrapped in Markdown bold / quotes / closing
+    questions, so it doesn't miss them.
+  - **Stop button**: while a run is in flight the "Send" button becomes "Stop";
+    clicking it aborts the current SSE request via `AbortController` and rolls the
+    UI back to the pre-send state.
 - **File attachments** rendered inline in the chat:
   - **Images** → `<img>` with click-to-open;
   - **Videos** → HTML5 `<video controls>`;
