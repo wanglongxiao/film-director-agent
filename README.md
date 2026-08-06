@@ -23,25 +23,9 @@ Two front doors are provided:
 
 ***
 
-## 1. What problem does it solve?
+## 1. Feature highlights
 
-Directing an audiovisual project is a **long, multimodal, multi-tool pipeline**.
-A single "one-shot" LLM call can't do it — you need:
-
-| Pain point                                    | What breaks a naïve LLM chat                     | How film-director-agent handles it                                                                 |
-| --------------------------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
-| Long-form generation gets cut at MAX\_TOKENS  | Reply ends mid-sentence, no way to resume        | Per-turn output budget + auto-continue + local SQLite checkpoint                                   |
-| Chat history explodes → context overflow      | LLM 400 / OOM after a few turns                  | ADK `App` sliding-window compaction (token & event thresholds)                                     |
-| Every restart forgets the story bible         | Users re-paste setup                             | ShortTermMemory backed by SQLite (survives restart)                                                |
-| Tool sprawl: search, image, video, code, docs | Ad-hoc chain-of-tools, models drift out of quota | Unified tool set + auto model-fallback chain for image/video                                       |
-| Users want the file, not a text preview       | LLM just describes the picture / doc             | Real files (JPG / MP4 / DOCX / PDF / PPTX / HTML) rendered, played, and downloadable in the Web UI |
-| API-key leakage in browser                    | Copy-paste keys into a static page               | BFF (server) holds the keys; browser only sees same-origin `/api/*`                                |
-
-***
-
-## 2. Feature highlights
-
-### 2.1 Agent capabilities
+### 1.1 Agent capabilities
 
 | Capability                                         | Underlying tool                                   | Backend                                                                                |
 | -------------------------------------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------- |
@@ -59,7 +43,7 @@ Strict guarantees enforced in the system instruction:
 - **Same sandbox session across tools** so `create_document` + `read_document` + `run_code` see the same files.
 - **Model auto-fallback** for image/video: only truly *model-related* errors (ModelNotOpen / AccessDenied) trigger fallback — parameter errors, moderation refusals, and quota errors surface as-is.
 
-### 2.2 Web UI highlights
+### 1.2 Web UI highlights
 
 - **Streaming SSE** chat with a live "thinking" collapsible pane and tool-call chips.
 - **Local ↔ Cloud switch**: one dropdown targets either the local ADK
@@ -98,13 +82,27 @@ Strict guarantees enforced in the system instruction:
 
 ***
 
-## 3. Demo screenshots
+## 2. Demo screenshots
 
 All shots are of the deployed Web UI (BFF at `webui/server.py` + static frontend
 at `webui/static/index.html`), talking to either the local ADK server or the
 cloud AgentKit Runtime.
 
-### 3.1 Web UI overview — chat + history sidebar
+### 2.1 Auto mode (unattended long runs)
+
+Auto mode is the Web UI's best fit for long-running tasks: when the agent stops
+at `MAX_TOKENS` or wraps a stage and asks the user to "reply continue", the UI
+shows a 10-second countdown banner; if nobody intervenes, it auto-sends
+"continue" and keeps the pipeline moving. Any user interaction cancels the
+pending auto-continue immediately and returns control to the operator.
+
+<video src="docs/screenshots/00-autorun.mp4" controls playsinline muted preload="metadata" style="width:100%;max-width:1100px;border-radius:12px;"></video>
+
+The clip above shows the real Auto-mode behavior: a long task reaches a
+"continue" boundary, the countdown banner appears, and the UI resumes execution
+automatically without manual babysitting.
+
+### 2.2 Web UI overview — chat + history sidebar
 
 ![Web UI overview](docs/screenshots/01-overview.png)
 
@@ -112,7 +110,7 @@ Two-column layout: left is the LRU-managed 20-session history (switch / delete-o
 / clear-all); right is the streaming chat pane. Target switch (local vs. cloud)
 is a single radio at the top.
 
-### 3.2 Streaming reply with thinking & tool-call chips
+### 2.3 Streaming reply with thinking & tool-call chips
 
 ![Streaming reply](docs/screenshots/02-streaming.png)
 
@@ -121,7 +119,7 @@ The frontend collapses the model's thinking into a foldable block and renders
 each tool invocation as a compact chip so you can see which sandbox action
 fired.
 
-### 3.3 Inline image attachment (Seedream)
+### 2.4 Inline image attachment (Seedream)
 
 ![Image attachment](docs/screenshots/03-image.png)
 
@@ -129,7 +127,7 @@ fired.
 storyboard panels, key frames, posters. The BFF passes it through to the UI
 which shows it inline as an attachment card with one-click download.
 
-### 3.4 Inline video player (Seedance)
+### 2.5 Inline video player (Seedance)
 
 ![Video attachment](docs/screenshots/04-video.png)
 
@@ -137,7 +135,7 @@ which shows it inline as an attachment card with one-click download.
 mounted directly as a `<video controls>` element so you can preview
 previz / teasers without leaving the chat.
 
-### 3.5 PDF card with preview + download
+### 2.6 PDF card with preview + download
 
 ![PDF preview & download](docs/screenshots/05-pdf.png)
 
@@ -146,7 +144,7 @@ previz / teasers without leaving the chat.
 `/api/file` endpoint pipes bytes back over signed AgentKit RunCode — the
 frontend surfaces a preview + a download button.
 
-### 3.6 History sidebar — switch / delete / clear-all
+### 2.7 History sidebar — switch / delete / clear-all
 
 ![History sidebar](docs/screenshots/06-history.png)
 
@@ -154,6 +152,22 @@ Sessions persist in `localStorage["awdir_sessions_v1"]` (up to 20, LRU-evicted).
 Titles auto-derive from the first user message (≤24 chars); `renderMessage()`
 faithfully rebuilds attachments, thought-blocks, and tool chips when you switch
 back to an older session.
+
+***
+
+## 3. What problem does it solve?
+
+Directing an audiovisual project is a **long, multimodal, multi-tool pipeline**.
+A single "one-shot" LLM call can't do it — you need:
+
+| Pain point                                    | What breaks a naïve LLM chat                     | How film-director-agent handles it                                                                 |
+| --------------------------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| Long-form generation gets cut at MAX\_TOKENS  | Reply ends mid-sentence, no way to resume        | Per-turn output budget + auto-continue + local SQLite checkpoint                                   |
+| Chat history explodes → context overflow      | LLM 400 / OOM after a few turns                  | ADK `App` sliding-window compaction (token & event thresholds)                                     |
+| Every restart forgets the story bible         | Users re-paste setup                             | ShortTermMemory backed by SQLite (survives restart)                                                |
+| Tool sprawl: search, image, video, code, docs | Ad-hoc chain-of-tools, models drift out of quota | Unified tool set + auto model-fallback chain for image/video                                       |
+| Users want the file, not a text preview       | LLM just describes the picture / doc             | Real files (JPG / MP4 / DOCX / PDF / PPTX / HTML) rendered, played, and downloadable in the Web UI |
+| API-key leakage in browser                    | Copy-paste keys into a static page               | BFF (server) holds the keys; browser only sees same-origin `/api/*`                                |
 
 ***
 

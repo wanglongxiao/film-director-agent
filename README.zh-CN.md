@@ -21,25 +21,9 @@ Development Kit）构建、以 **AgentKit Runtime** 形式发布的「导演助�
 
 ***
 
-## 1. 解决什么问题
+## 1. 系统功能与卖点
 
-导演一部视听作品是**长流程、多模态、多工具串联**的活。一次性 LLM 调用做不到——
-你需要：
-
-| 痛点                      | 朴素 LLM 聊天为何崩      | film-director-agent 如何解决                                       |
-| ----------------------- | ----------------- | --------------------------------------------------------------- |
-| 长文本生成在 MAX\_TOKENS 处被截断 | 回复半句话结束，无法续写      | 单轮输出预算 + 自动续写 + 本地 SQLite checkpoint                            |
-| 聊天历史膨胀 → 上下文溢出          | 几轮后 LLM 400 / OOM | ADK `App` 滑动窗口压缩（token & 事件阈值触发）                                |
-| 进程重启忘光设定                | 用户每次都要重新粘贴        | ShortTermMemory 后端 SQLite（重启不丢）                                 |
-| 工具繁多：搜索、图像、视频、代码、文档     | 手工串工具、模型经常撞额度     | 统一工具集 + 图/视频模型「自动降级链」                                           |
-| 用户要**文件**而不是文字描述        | LLM 只会「描述」图片/文档   | 真实生成 JPG / MP4 / DOCX / PDF / PPTX / HTML，可在 Web UI 内直接查看/播放/下载 |
-| 浏览器泄露 API Key           | 静态页面里明文粘贴 key     | BFF（服务端）持有 key，浏览器只见同源 `/api/*`                                 |
-
-***
-
-## 2. 系统功能与卖点
-
-### 2.1 Agent 能力矩阵
+### 1.1 Agent 能力矩阵
 
 | 能力                                  | 对应工具                                              | 后端                                                                 |
 | ----------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------ |
@@ -57,7 +41,7 @@ Development Kit）构建、以 **AgentKit Runtime** 形式发布的「导演助�
 - **同一沙箱会话贯穿工具调用**，`create_document` + `read_document` + `run_code` 看到的是同一批文件。
 - **图/视频模型自动降级**：只有真正的「模型相关错误」（ModelNotOpen / AccessDenied）才会触发降级；参数错误、内容审核、额度不足会原样抛出，避免掩盖真实问题。
 
-### 2.2 Web UI 特色
+### 1.2 Web UI 特色
 
 - **SSE 流式聊天**，实时展示「思考」可折叠面板与「工具调用」chip。
 - **本地 ↔ 云端切换**：一个下拉框在本地 ADK（`http://127.0.0.1:8000`，
@@ -89,40 +73,52 @@ Development Kit）构建、以 **AgentKit Runtime** 形式发布的「导演助�
 
 ***
 
-## 3. Demo 截屏
+## 2. Demo 截屏
 
 以下所有截图均来自部署好的 Web UI（`webui/server.py` 的 BFF + `webui/static/index.html`
 静态前端），后端可连本地 ADK 或云端 AgentKit Runtime。
 
-### 3.1 Web UI 总览——聊天 + 历史侧栏
+### 2.1 自动模式（无人值守长跑）
+
+自动模式是 Web UI 最适合长任务的一项能力：当 Agent 因 `MAX_TOKENS` 或阶段收尾而提示
+“回复继续”时，前端会显示 10 秒倒计时 banner；若期间无人操作，则自动发送“继续”，让
+“剧本 + 图片/视频 + 图文混编文档”这类长链路任务连续跑完。任意用户交互都会立即取消自动续写，
+把控制权交还给你。
+
+<video src="docs/screenshots/00-autorun.mp4" controls playsinline muted preload="metadata" style="width:100%;max-width:1100px;border-radius:12px;"></video>
+
+上面这段录屏展示了自动模式的真实运行效果：Agent 在长任务中进入“等待继续”时，UI 自动倒计时，
+随后自动续跑，无需人工守在屏幕前点“继续”。
+
+### 2.2 Web UI 总览——聊天 + 历史侧栏
 
 ![Web UI 总览](docs/screenshots/01-overview.png)
 
 两栏布局：左侧是 LRU 管理的 20 条会话历史（切换 / 逐一删除 / 一键清空），右侧是流式
 聊天区。顶部单选可切换 target（本地 vs 云端）。
 
-### 3.2 流式回复（思考 + 工具 chip）
+### 2.3 流式回复（思考 + 工具 chip）
 
 ![流式回复](docs/screenshots/02-streaming.png)
 
 SSE 流式返回 `text` / `thought` / `tool_call` / `file` 事件。前端把模型的思考折叠成
 可展开块，每次工具调用渲染成紧凑的 chip，可以直接看到 sandbox 触发的动作。
 
-### 3.3 图片附件内联展示（Seedream）
+### 2.4 图片附件内联展示（Seedream）
 
 ![图片附件](docs/screenshots/03-image.png)
 
 `image_generate` 返回 Seedream 渲染成品的公网 TOS URL——分镜格、关键帧、海报。BFF
 透传给 UI，UI 内联为附件卡片并提供一键下载。
 
-### 3.4 视频播放（Seedance）
+### 2.5 视频播放（Seedance）
 
 ![视频播放](docs/screenshots/04-video.png)
 
 `video_generate` 返回 Seedance 渲染成品的公网 URL，直接挂载为 `<video controls>`
 元素，无需离开聊天即可预览预演片段 / teaser。
 
-### 3.5 PDF 预览 + 下载卡片
+### 2.6 PDF 预览 + 下载卡片
 
 ![PDF 预览与下载](docs/screenshots/05-pdf.png)
 
@@ -130,13 +126,29 @@ SSE 流式返回 `text` / `thought` / `tool_call` / `file` 事件。前端把模
 （`/home/gem/veadk_docs/*`）。因为沙箱文件没有公网 URL，BFF 的 `/api/file` 端点
 通过签名的 AgentKit RunCode 把字节流拉回来——前端呈现预览 + 下载按钮。
 
-### 3.6 历史侧栏——切换 / 删除 / 清空
+### 2.7 历史侧栏——切换 / 删除 / 清空
 
 ![历史侧栏](docs/screenshots/06-history.png)
 
 会话持久化在 `localStorage["awdir_sessions_v1"]`（上限 20，LRU 淘汰）。标题自动从
 首条用户消息前 24 字截取；`renderMessage()` 会在切换回旧会话时完整还原附件、
 思考块和工具 chip。
+
+***
+
+## 3. 解决什么问题
+
+导演一部视听作品是**长流程、多模态、多工具串联**的活。一次性 LLM 调用做不到——
+你需要：
+
+| 痛点                      | 朴素 LLM 聊天为何崩      | film-director-agent 如何解决                                       |
+| ----------------------- | ----------------- | --------------------------------------------------------------- |
+| 长文本生成在 MAX\_TOKENS 处被截断 | 回复半句话结束，无法续写      | 单轮输出预算 + 自动续写 + 本地 SQLite checkpoint                            |
+| 聊天历史膨胀 → 上下文溢出          | 几轮后 LLM 400 / OOM | ADK `App` 滑动窗口压缩（token & 事件阈值触发）                                |
+| 进程重启忘光设定                | 用户每次都要重新粘贴        | ShortTermMemory 后端 SQLite（重启不丢）                                 |
+| 工具繁多：搜索、图像、视频、代码、文档     | 手工串工具、模型经常撞额度     | 统一工具集 + 图/视频模型「自动降级链」                                           |
+| 用户要**文件**而不是文字描述        | LLM 只会「描述」图片/文档   | 真实生成 JPG / MP4 / DOCX / PDF / PPTX / HTML，可在 Web UI 内直接查看/播放/下载 |
+| 浏览器泄露 API Key           | 静态页面里明文粘贴 key     | BFF（服务端）持有 key，浏览器只见同源 `/api/*`                                 |
 
 ***
 
