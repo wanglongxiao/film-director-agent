@@ -27,6 +27,7 @@
 - LOCAL_AGENT_BASE_URL  本地 ADK 地址（默认 http://127.0.0.1:8000）
 - LOCAL_AGENT_APP_NAME  本地 ADK app 名（默认 assistant；留空则自动探测）
 - WEBUI_ENABLE_LOCAL    是否在前端暴露「本地」目标（默认 true；云端部署可设 false）
+- WEBUI_ACCESS_PASSWORD 云端 Web UI 准入密码（仅当 WEBUI_ENABLE_LOCAL=false 时生效）
 - SANDBOX_AGENT_NAME    沙箱会话派生用的 agent.name（默认 movie_script_agent，本地/云端一致）
 - VOLCENGINE_ACCESS_KEY / VOLCENGINE_SECRET_KEY / AGENTKIT_TOOL_ID(_SCRIPT)
                         读沙箱文档所需（由 .env 注入函数环境变量）
@@ -37,6 +38,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import secrets
 from typing import Optional
 from urllib.parse import quote
 
@@ -85,9 +87,44 @@ CLOUD_APP_NAME = os.getenv("CLOUD_AGENT_APP_NAME", "movie_script_agent").strip()
 LOCAL_BASE_URL = os.getenv("LOCAL_AGENT_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
 LOCAL_APP_NAME = os.getenv("LOCAL_AGENT_APP_NAME", "assistant").strip()
 ENABLE_LOCAL = _bool_env("WEBUI_ENABLE_LOCAL", True)
+WEBUI_ACCESS_PASSWORD = os.getenv("WEBUI_ACCESS_PASSWORD", "").strip()
+_AUTH_COOKIE = "awdir_webui_auth"
+_AUTH_COOKIE_MAX_AGE = 60 * 60 * 24 * 7  # 7 days
 
 # app 名探测结果缓存，避免每次请求都打 /list-apps
 _APP_NAME_CACHE: dict[str, str] = {}
+
+
+def _cloud_gate_enabled() -> bool:
+    """仅在云端 Web UI 生效：关闭本地目标且配置了准入密码时启用。"""
+    return (not ENABLE_LOCAL) and bool(WEBUI_ACCESS_PASSWORD)
+
+
+def _auth_cookie_value() -> str:
+    raw = f"aw-director-webui\n{WEBUI_ACCESS_PASSWORD}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _is_authorized(request: Request) -> bool:
+    if not _cloud_gate_enabled():
+        return True
+    token = (request.cookies.get(_AUTH_COOKIE) or "").strip()
+    expected = _auth_cookie_value()
+    return bool(token) and secrets.compare_digest(token, expected)
+
+
+def _gate_payload() -> dict:
+    return {
+        "required": _cloud_gate_enabled(),
+        "authorized": False,
+        "message": "云端 Web UI 需要准入密码",
+    }
+
+
+def _is_public_path(path: str) -> bool:
+    if path in {"/", "/favicon.ico", "/api/config", "/api/auth/status", "/api/auth/login"}:
+        return True
+    return path.startswith("/static/")
 
 
 def _target_conf(target: str) -> dict:
@@ -189,6 +226,23 @@ async def _cache_doc_from_sandbox(path: str, user_id: str, session_id: str) -> d
 app = FastAPI(title="aw-director-agent Web UI (BFF)")
 
 
+@app.middleware("http")
+async def cloud_gate_middleware(request: Request, call_next):
+    """云端 Web UI 准入门禁。
+
+    仅当：
+    1) 不暴露本地目标（典型云端部署），且
+    2) 配置了 WEBUI_ACCESS_PASSWORD
+    时启用。根页面与登录接口放行，业务接口统一要求授权 cookie。
+    """
+    if _cloud_gate_enabled() and not _is_public_path(request.url.path):
+        if not _is_authorized(request):
+            if request.url.path.startswith("/api/") or request.url.path.startswith("/artifacts/"):
+                return JSONResponse(status_code=401, content=_gate_payload())
+            return Response(status_code=401)
+    return await call_next(request)
+
+
 async def _resolve_app_name(client: httpx.AsyncClient, conf: dict) -> str:
     """优先用配置的 app 名；为空时探测 /list-apps 取第一个。"""
     if conf["app_name"]:
@@ -219,6 +273,43 @@ async def api_config():
         targets[0]["id"] if targets else None
     )
     return {"targets": targets, "default": default}
+
+
+@app.get("/api/auth/status")
+async def api_auth_status(request: Request):
+    """返回当前 Web UI 是否启用了准入密码，以及当前浏览器是否已放行。"""
+    if not _cloud_gate_enabled():
+        return {"required": False, "authorized": True}
+    return {"required": True, "authorized": _is_authorized(request)}
+
+
+@app.post("/api/auth/login")
+async def api_auth_login(request: Request):
+    """校验准入密码并写入同源 cookie。仅云端 Web UI 启用。"""
+    if not _cloud_gate_enabled():
+        return {"ok": True, "required": False}
+    body = await request.json()
+    password = (body.get("password") or "").strip()
+    if not secrets.compare_digest(password, WEBUI_ACCESS_PASSWORD):
+        raise HTTPException(status_code=401, detail="invalid password")
+    resp = JSONResponse({"ok": True, "required": True})
+    resp.set_cookie(
+        key=_AUTH_COOKIE,
+        value=_auth_cookie_value(),
+        max_age=_AUTH_COOKIE_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        secure=True,
+    )
+    return resp
+
+
+@app.post("/api/auth/logout")
+async def api_auth_logout():
+    """清除 Web UI 准入 cookie。"""
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(key=_AUTH_COOKIE, samesite="lax")
+    return resp
 
 
 @app.get("/api/health")

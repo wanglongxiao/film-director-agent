@@ -30,6 +30,10 @@ os.environ.setdefault("VEADK_LOCAL_KB_DB_PATH", os.path.join(_TMP, "kb.db"))
 os.environ.setdefault("VEADK_ARTIFACT_DB_PATH", os.path.join(_TMP, "artifacts.db"))
 # Keep assemble_html offline & deterministic: don't hit the network to inline images.
 os.environ.setdefault("VEADK_DOC_INLINE_IMAGES", "0")
+# Keep Web UI tests in local-mode by default; password gate is covered explicitly
+# in dedicated tests that monkeypatch module globals.
+os.environ.setdefault("WEBUI_ENABLE_LOCAL", "true")
+os.environ.setdefault("WEBUI_ACCESS_PASSWORD", "")
 
 # Quiet the noisy VeADK import-time logging (keep only warnings+).
 logging.getLogger("veadk").setLevel(logging.WARNING)

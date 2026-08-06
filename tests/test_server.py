@@ -37,6 +37,12 @@ async def _get(app, url):
         return await c.get(url)
 
 
+async def _post(app, url, json=None, cookies=None):
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+        return await c.post(url, json=json, cookies=cookies)
+
+
 class FilesFromToolResponseTest(unittest.TestCase):
     def _files(self, name, resp):
         return list(server._files_from_tool_response(name, resp, "u1", "s1"))
@@ -191,6 +197,52 @@ class ApiConfigRouteTest(unittest.TestCase):
         ids = {t["id"] for t in data["targets"]}
         self.assertNotIn("cloud", ids)
         self.assertEqual(data["default"], "local")
+
+
+class WebUiPasswordGateTest(unittest.TestCase):
+    def setUp(self):
+        self.orig_enable_local = server.ENABLE_LOCAL
+        self.orig_password = server.WEBUI_ACCESS_PASSWORD
+
+    def tearDown(self):
+        server.ENABLE_LOCAL = self.orig_enable_local
+        server.WEBUI_ACCESS_PASSWORD = self.orig_password
+
+    def test_auth_status_reports_required_on_cloud(self):
+        server.ENABLE_LOCAL = False
+        server.WEBUI_ACCESS_PASSWORD = "AW88"
+        r = _run(_get(server.app, "/api/auth/status"))
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json(), {"required": True, "authorized": False})
+
+    def test_login_sets_cookie_and_allows_chat(self):
+        server.ENABLE_LOCAL = False
+        server.WEBUI_ACCESS_PASSWORD = "AW88"
+        login = _run(_post(server.app, "/api/auth/login", json={"password": "AW88"}))
+        self.assertEqual(login.status_code, 200)
+        cookie = login.cookies.get("awdir_webui_auth")
+        self.assertTrue(cookie)
+        chat = _run(_post(
+            server.app,
+            "/api/chat",
+            json={"target": "cloud", "message": "hi"},
+            cookies={"awdir_webui_auth": cookie},
+        ))
+        # 未继续打桩 cloud runtime，这里只验证通过门禁，不要求请求成功。
+        self.assertNotEqual(chat.status_code, 401)
+
+    def test_login_rejects_wrong_password(self):
+        server.ENABLE_LOCAL = False
+        server.WEBUI_ACCESS_PASSWORD = "AW88"
+        r = _run(_post(server.app, "/api/auth/login", json={"password": "BAD"}))
+        self.assertEqual(r.status_code, 401)
+
+    def test_local_mode_does_not_require_password(self):
+        server.ENABLE_LOCAL = True
+        server.WEBUI_ACCESS_PASSWORD = "AW88"
+        r = _run(_get(server.app, "/api/auth/status"))
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json(), {"required": False, "authorized": True})
 
 
 class ApiFileRouteTest(unittest.TestCase):
