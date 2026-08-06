@@ -410,7 +410,6 @@ def _canonicalize_reference_urls(params: list, known_urls: list[str]) -> int:
     """
     if not known_urls:
         return 0
-    # basename -> 完整签名 URL（known_urls 已按最新在前，dict 首次写入即最新）。
     by_basename: dict[str, str] = {}
     for full in known_urls:
         base = _url_basename(full)
@@ -421,7 +420,6 @@ def _canonicalize_reference_urls(params: list, known_urls: list[str]) -> int:
         nonlocal fixed
         if not _looks_like_http_url(value):
             return value
-        # 已是完整签名 URL 且在库中登记（或本身带签名）则无需改动。
         if _url_is_signed(value) and value in known_urls:
             return value
         canonical = by_basename.get(_url_basename(value))
@@ -545,7 +543,8 @@ def _wrap_video_generate_with_reference_fallback(video_tool):
                 if fixed:
                     logger.warning(
                         "Canonicalized %d reference-image URL(s) back to full signed "
-                        "URLs from artifact store (model likely truncated them).", fixed,
+                        "URLs from artifact store (model likely truncated them).",
+                        fixed,
                     )
             except Exception as e:  # noqa: BLE001 - 还原失败不影响后续兜底
                 logger.warning("reference URL canonicalization skipped: %s", e)

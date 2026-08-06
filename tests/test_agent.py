@@ -425,6 +425,52 @@ class VideoReferenceFallbackTest(unittest.TestCase):
         self.assertEqual(res["status"], "success")
         self.assertEqual(captured["params"][0]["reference_images"], ["http://x/scene.png"])
 
+    def test_tier0_restores_truncated_signed_urls_from_artifact_store(self):
+        captured = {}
+        full = (
+            "https://ark-acg-cn-beijing.tos-cn-beijing.volces.com/"
+            "doubao-seedream-5-0-pro/x/Image/2100809186/"
+            "02178600276561998c470d32e326dd7109413e831d170d8c235b0.jpeg"
+            "?X-Tos-Algorithm=TOS4-HMAC-SHA256"
+            "&X-Tos-Credential=AKLTYWJk%2F20260806%2Fcn-beijing%2Ftos%2Frequest"
+            "&X-Tos-Date=20260806T075417Z&X-Tos-Expires=86400"
+            "&X-Tos-Signature=10d34788ef1d47d36af458b4d30226c25d36fe7a85877eb93e83f43bf2dadd19"
+            "&X-Tos-SignedHeaders=host"
+        )
+        short = (
+            "https://ark-acg-cn-beijing.tos-cn-beijing.volces.com/"
+            "0b532c8d.../02178600276561998c470d32e326dd7109413e831d170d8c235b0.jpeg"
+        )
+
+        async def raw(params, **kwargs):
+            captured["params"] = [dict(p) for p in params]
+            return {"status": "success", "success_list": [{"k.mp4": "http://v/k.mp4"}]}
+
+        orig_download = agent._download_as_data_uri
+        orig_store = agent.artifact_store
+        agent._download_as_data_uri = lambda url: _async_return(None)
+
+        class _StubStore:
+            def media_urls(self, **kwargs):
+                return [full]
+
+        agent.artifact_store = _StubStore()
+        try:
+            wrapped = agent._wrap_video_generate_with_reference_fallback(raw)
+            params = [{
+                "video_name": "k.mp4",
+                "prompt": "[图1]天台对峙",
+                "first_frame": short,
+                "reference_images": [short],
+            }]
+            res = self._run(wrapped(params, tool_context=FakeToolContext()))
+        finally:
+            agent._download_as_data_uri = orig_download
+            agent.artifact_store = orig_store
+        self.assertEqual(res["status"], "success")
+        self.assertEqual(captured["params"][0]["first_frame"], full)
+        self.assertEqual(captured["params"][0]["reference_images"][0], full)
+
     def test_tier3_degrades_to_text_to_video_on_failure(self):
         calls = []
 

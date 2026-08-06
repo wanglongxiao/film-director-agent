@@ -96,18 +96,22 @@ class ArtifactStoreTest(unittest.TestCase):
         urls = self.store.media_urls(**_IDS)
         self.assertIn(_IMG_URL, urls)
         self.assertIn(_VID_URL, urls)
-        self.assertEqual(len(urls), 2)  # 只含图/视频，且都是完整签名 URL
+        self.assertEqual(len(urls), 2)
 
 
 class ReferenceUrlCanonicalizeTest(unittest.TestCase):
-    """把模型抄短/丢签名的参考图 URL 还原成持久化中的完整签名 URL（根因修复）。"""
+    """把模型抄短/丢签名的参考图 URL 还原成持久化中的完整签名 URL。"""
 
     def test_restores_truncated_reference_urls_by_basename(self):
-        # 模型抄短形式：省略路径中段，只保留文件名。
-        short = ("https://ark-acg-cn-beijing.tos-cn-beijing.volces.com/"
-                 "0b532c8d.../02178600144455049d9e4e345fff0a9cbe1dfa11f8e7ca07aac10_0.jpeg")
-        params = [{"prompt": "天台对峙 [图1]", "first_frame": short,
-                   "reference_images": [short]}]
+        short = (
+            "https://ark-acg-cn-beijing.tos-cn-beijing.volces.com/"
+            "0b532c8d.../02178600144455049d9e4e345fff0a9cbe1dfa11f8e7ca07aac10_0.jpeg"
+        )
+        params = [{
+            "prompt": "天台对峙 [图1]",
+            "first_frame": short,
+            "reference_images": [short],
+        }]
         fixed = agent._canonicalize_reference_urls(params, [_IMG_URL])
         self.assertEqual(fixed, 2)
         self.assertEqual(params[0]["first_frame"], _IMG_URL)
@@ -135,9 +139,7 @@ class ReferenceUrlCanonicalizeTest(unittest.TestCase):
     def test_url_helpers(self):
         self.assertTrue(agent._url_is_signed(_IMG_URL))
         self.assertFalse(agent._url_is_signed("https://x/a.jpeg"))
-        self.assertEqual(
-            agent._url_basename("https://x/y/z/a.JPEG?q=1"), "a.jpeg"
-        )
+        self.assertEqual(agent._url_basename("https://x/y/z/a.JPEG?q=1"), "a.jpeg")
 
 
 class ArtifactAgentToolTest(unittest.TestCase):
