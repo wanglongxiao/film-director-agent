@@ -215,6 +215,31 @@ class ArtifactStore:
         by_kind = {r["kind"]: int(r["n"]) for r in rows}
         return {"total": sum(by_kind.values()), "by_kind": by_kind}
 
+    def media_urls(
+        self,
+        *,
+        app_name: str,
+        user_id: str,
+        session_id: str,
+        limit: int = 500,
+    ) -> list[str]:
+        """返回本会话所有已持久化的图片/视频【完整 URL】（含签名参数），最新在前。
+
+        用于把模型可能抄短/抄错的参考图 URL 还原成规范的完整签名 URL。
+        """
+        limit = max(1, min(int(limit), 2000))
+        with self._lock, self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT url FROM artifacts
+                WHERE app_name = ? AND user_id = ? AND session_id = ?
+                  AND kind IN ('image', 'video') AND url <> ''
+                ORDER BY id DESC LIMIT ?
+                """,
+                (app_name, user_id, session_id, limit),
+            ).fetchall()
+        return [r["url"] for r in rows if r["url"]]
+
     @staticmethod
     def _row_to_dict(row) -> dict:
         # content 完整返回；url 必须完整（含签名参数）绝不截断。

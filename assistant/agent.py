@@ -169,6 +169,11 @@ INSTRUCTION = """\
   reference_images（1-4 张），并在 prompt 里用 [图1][图2] 指代它们。系统会自动按
   「先下载图片内联使用 → 下载失败则直接引用图片 URL → 视频仍失败则退化为纯文字生成视频」
   三级兜底，无需你手动处理下载或降级；若最终走了文生视频兜底，请在回复里提醒用户本次未用参考图。
+  【务必：传参考图 URL 时用完整签名 URL，不要抄短】图片签名 URL 很长（以 https://ark 开头、
+  以 &X-Tos-SignedHeaders=host 结尾），从头到尾一个字符都不能省，绝不要写成 `xxx.../abc.jpeg`
+  这种省略形式——截断/丢签名的 URL 会被视频服务拒绝（Access Denied）。若你手头只有省略形式，
+  可先调用 list_artifacts(kind="image") 取回该图的完整 URL 再传入；系统也会尽力按文件名把
+  抄短的 URL 还原为持久化中的完整签名 URL，但你应优先直接传完整 URL。
 - 需要产出 Word / PDF / PPT / HTML 等剧本文档时，调用 create_document：
   传入 doc_format（docx/pdf/pptx/html）、filename、content（正文，"# "/"## " 作标题、
   "- " 作要点；pptx 中每个 "# " 起一页；html 也可直接传完整 HTML 字符串）、可选 title。
@@ -382,6 +387,63 @@ def _looks_like_http_url(value) -> bool:
     return isinstance(value, str) and value.strip().lower().startswith(("http://", "https://"))
 
 
+def _url_basename(url: str) -> str:
+    """取 URL 路径部分（去掉 ? 之后的 query）的文件名，用于跨『抄短/抄错』匹配同一张图。"""
+    try:
+        path = url.split("?", 1)[0]
+        return path.rstrip("/").rsplit("/", 1)[-1].strip().lower()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _url_is_signed(url: str) -> bool:
+    """带 X-Tos-Signature 等签名 query 的才算『完整可访问』的签名 URL。"""
+    return "x-tos-signature=" in (url or "").lower()
+
+
+def _canonicalize_reference_urls(params: list, known_urls: list[str]) -> int:
+    """把 params 里被模型抄短/抄错/丢签名的参考图 URL 还原成持久化中的【完整签名 URL】。
+
+    根因：签名 URL 长达数百字符，模型无法逐字复制，常抄成 `0b53….../xxx.jpeg` 之类，
+    传给视频服务即 Access Denied。这里以文件名 basename 为锚，把每个参考图 URL 映射回
+    artifact_store 中登记过的、含签名参数的完整 URL。返回被修正的字段数。
+    """
+    if not known_urls:
+        return 0
+    # basename -> 完整签名 URL（known_urls 已按最新在前，dict 首次写入即最新）。
+    by_basename: dict[str, str] = {}
+    for full in known_urls:
+        base = _url_basename(full)
+        if base and base not in by_basename and _url_is_signed(full):
+            by_basename[base] = full
+
+    def _resolve(value):
+        nonlocal fixed
+        if not _looks_like_http_url(value):
+            return value
+        # 已是完整签名 URL 且在库中登记（或本身带签名）则无需改动。
+        if _url_is_signed(value) and value in known_urls:
+            return value
+        canonical = by_basename.get(_url_basename(value))
+        if canonical and canonical != value:
+            fixed += 1
+            return canonical
+        return value
+
+    fixed = 0
+    for item in params:
+        if not isinstance(item, dict):
+            continue
+        for field in _VIDEO_REF_IMAGE_SINGLE_FIELDS:
+            if field in item:
+                item[field] = _resolve(item[field])
+        for field in _VIDEO_REF_IMAGE_LIST_FIELDS:
+            urls = item.get(field)
+            if isinstance(urls, list):
+                item[field] = [_resolve(u) for u in urls]
+    return fixed
+
+
 async def _download_as_data_uri(url: str) -> str | None:
     """下载图片并内联为 base64 data URI；失败/超限返回 None（回退到直接用 URL）。"""
     try:
@@ -464,6 +526,29 @@ def _wrap_video_generate_with_reference_fallback(video_tool):
         ):
             # 无参考素材：直接走原逻辑（含 model-fallback）。
             return await video_tool(*args, **kwargs)
+
+        # Tier 0：把模型抄短/抄错/丢签名的参考图 URL 还原成持久化中的完整签名 URL。
+        # 这是解决“参考图 URL 不完整 → 视频服务 Access Denied”的根因修复。
+        tool_context = kwargs.get("tool_context")
+        if tool_context is None:
+            tool_context = next(
+                (a for a in args if hasattr(a, "session") and hasattr(a, "user_id")),
+                None,
+            )
+        if tool_context is not None:
+            try:
+                app_name, user_id, session_id = _draft_ids(tool_context)
+                known_urls = artifact_store.media_urls(
+                    app_name=app_name, user_id=user_id, session_id=session_id
+                )
+                fixed = _canonicalize_reference_urls(params, known_urls)
+                if fixed:
+                    logger.warning(
+                        "Canonicalized %d reference-image URL(s) back to full signed "
+                        "URLs from artifact store (model likely truncated them).", fixed,
+                    )
+            except Exception as e:  # noqa: BLE001 - 还原失败不影响后续兜底
+                logger.warning("reference URL canonicalization skipped: %s", e)
 
         # Tier 1→2：尽量把参考图下载内联为 base64；失败的保留原 URL。
         await _inline_reference_images(params)

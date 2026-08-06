@@ -89,6 +89,56 @@ class ArtifactStoreTest(unittest.TestCase):
         self.assertTrue(by_content and by_content[0]["url"] == _IMG_URL)
         self.assertTrue(by_url and by_url[0]["url"] == _IMG_URL)
 
+    def test_media_urls_returns_only_full_signed_image_and_video_urls(self):
+        self.store.save(**_IDS, kind="image", content="男主", url=_IMG_URL)
+        self.store.save(**_IDS, kind="video", content="终幕", url=_VID_URL)
+        self.store.save(**_IDS, kind="outline", content="大纲无 URL")
+        urls = self.store.media_urls(**_IDS)
+        self.assertIn(_IMG_URL, urls)
+        self.assertIn(_VID_URL, urls)
+        self.assertEqual(len(urls), 2)  # 只含图/视频，且都是完整签名 URL
+
+
+class ReferenceUrlCanonicalizeTest(unittest.TestCase):
+    """把模型抄短/丢签名的参考图 URL 还原成持久化中的完整签名 URL（根因修复）。"""
+
+    def test_restores_truncated_reference_urls_by_basename(self):
+        # 模型抄短形式：省略路径中段，只保留文件名。
+        short = ("https://ark-acg-cn-beijing.tos-cn-beijing.volces.com/"
+                 "0b532c8d.../02178600144455049d9e4e345fff0a9cbe1dfa11f8e7ca07aac10_0.jpeg")
+        params = [{"prompt": "天台对峙 [图1]", "first_frame": short,
+                   "reference_images": [short]}]
+        fixed = agent._canonicalize_reference_urls(params, [_IMG_URL])
+        self.assertEqual(fixed, 2)
+        self.assertEqual(params[0]["first_frame"], _IMG_URL)
+        self.assertEqual(params[0]["reference_images"][0], _IMG_URL)
+
+    def test_keeps_already_full_signed_url_untouched(self):
+        params = [{"first_frame": _IMG_URL}]
+        self.assertEqual(agent._canonicalize_reference_urls(params, [_IMG_URL]), 0)
+        self.assertEqual(params[0]["first_frame"], _IMG_URL)
+
+    def test_unknown_basename_is_left_as_is(self):
+        params = [{"first_frame": "https://x/unknown.jpeg"}]
+        self.assertEqual(agent._canonicalize_reference_urls(params, [_IMG_URL]), 0)
+        self.assertEqual(params[0]["first_frame"], "https://x/unknown.jpeg")
+
+    def test_no_known_urls_is_noop(self):
+        params = [{"first_frame": "https://x/whatever.jpeg"}]
+        self.assertEqual(agent._canonicalize_reference_urls(params, []), 0)
+
+    def test_non_http_values_untouched(self):
+        params = [{"first_frame": "data:image/jpeg;base64,AAAA"}]
+        self.assertEqual(agent._canonicalize_reference_urls(params, [_IMG_URL]), 0)
+        self.assertEqual(params[0]["first_frame"], "data:image/jpeg;base64,AAAA")
+
+    def test_url_helpers(self):
+        self.assertTrue(agent._url_is_signed(_IMG_URL))
+        self.assertFalse(agent._url_is_signed("https://x/a.jpeg"))
+        self.assertEqual(
+            agent._url_basename("https://x/y/z/a.JPEG?q=1"), "a.jpeg"
+        )
+
 
 class ArtifactAgentToolTest(unittest.TestCase):
     def setUp(self):
