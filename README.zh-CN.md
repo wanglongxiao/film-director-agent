@@ -168,6 +168,7 @@ film-director-agent/
 │   ├── __init__.py                 # 导出 root_agent
 │   ├── agent.py                    # 工具装配、模型降级、输出预算守护、自动续写
 │   ├── document_tools.py           # create_document / read_document（沙箱兜底）
+│   ├── document_draft_store.py      # SQLite 增量草稿存储（长文档由服务端组装）
 │   ├── continuation_store.py       # SQLite 输出 checkpoint（auto_continue_generation）
 │   └── local_knowledge_store.py    # SQLite 剧本圣经：save_local_knowledge / search_local_knowledge
 ├── webui/                          # 自建聊天 UI + BFF
@@ -181,14 +182,22 @@ film-director-agent/
 ├── .env.example                    # 占位符 env — 复制为 .env
 ├── config.yaml                     # VeADK 静态配置（可被环境变量覆盖）
 ├── requirements.txt                # 云端 AgentKit Runtime 依赖
+├── tests/                          # 离线单元测试套件（标准库 unittest）
+│   ├── run_all.py                  # 便捷运行器（隔离临时 DB + 静音日志）
+│   ├── test_stores.py              # 草稿 / 续写 / 知识库 三个 SQLite store
+│   ├── test_agent.py               # 工具、预算守护、自动续写、模型降级
+│   ├── test_server.py              # Web UI BFF：文件提取、SSE、/api/config、/api/file
+│   ├── test_document_tools.py      # create/read_document 校验 + 沙箱 session-id
+│   └── test_sandbox_files.py       # 沙箱文件读取守卫 + 标记解析
+├── .github/workflows/tests.yml     # CI：push / PR 时运行单元测试套件
 └── src/aw_director_agent/          # 命令行入口（项目改名的账本）
 ```
 
 > **不在公开仓库中（本地保留，通过 `.gitignore` 忽略）：**
-> `.agentkit/agentkit.yaml`、`.github/workflows/`、`Dockerfile`、`.dockerignore`、
-> `pyproject.toml`、`uv.lock`、`.python-version` —— 这些文件里含有作者环境的
-> 部署 id、容器与 CI 细节。Fork 后可用 `agentkit init` + `uv init` 重新生成
-> 属于你自己的版本。
+> `.agentkit/agentkit.yaml`、`.github/workflows/deploy.yml`、`Dockerfile`、
+> `.dockerignore`、`pyproject.toml`、`uv.lock`、`.python-version` —— 这些文件里
+> 含有作者环境的部署 id 与容器细节。（离线的 `tests.yml` CI workflow **是**公开的。）
+> Fork 后其余文件可用 `agentkit init` + `uv init` 重新生成属于你自己的版本。
 
 ### 5.1 运行拓扑
 
@@ -353,7 +362,39 @@ agentkit deploy
 
 ***
 
-## 8. FAQ
+## 8. 测试与 CI
+
+仓库自带一套**完全离线**的单元测试套件（Python 标准库 `unittest`——不依赖
+pytest、网络、火山凭证或沙箱），在逻辑层端到端覆盖导演助手的各项能力：
+
+| 领域 | 验证点 |
+| ---- | ---- |
+| 长剧本 + 图文混排文档 | 增量草稿 store：按 draft 自增序号、统计、组装 HTML 时图文按序穿插、分页符、HTML 转义（防注入） |
+| 定妆照 / 场景图 / 分镜图 & 关键镜头视频 | `_files_from_tool_response` 把 `image_generate` / `video_generate` / 文档结果转成 UI `file` 事件（图片 / 视频 / 文档 / 后缀兜底） |
+| 图片/视频一致性流水线 | `image_generate` / `video_generate` 自动模型降级包装器：仅「模型相关错误」才降级；草稿流保证图序确定 |
+| 图文混排 PDF / Word 长剧本生成 | `draft_add_section` → `draft_add_image` → `draft_build_document` 服务端组装 HTML 并委托 `create_document`；坏格式归一化为 pdf |
+| 历史会话 | `/api/config` 标签、`/api/file` 路径守卫 + inline/attachment 头（ASGITransport 路由测试） |
+| 发送 / 停止回滚 & 自动续写 | 单轮输出预算守护、`MAX_TOKENS` → `auto_continue_generation` function-call、超步数停止、checkpoint store |
+| 自动 / 非自动模式 & agent 长跑 | 预算回调、续写 checkpoint、禁用检索工具剥离、工具注册完整性 |
+| 密钥保护 | `/api/config` 从不泄露云端 key；缺凭证时沙箱读取拒绝联网 |
+
+本地运行：
+
+```bash
+# 便捷运行器——隔离临时 DB + 静音 VeADK 日志
+uv run python tests/run_all.py
+# 或标准 discover 入口
+uv run python -m unittest discover -s tests -p "test_*.py" -v
+```
+
+预期：**75 tests, OK**。同一套测试会在每次 push / PR 到 `main` 时经由
+[`.github/workflows/tests.yml`](.github/workflows/tests.yml) 在 GitHub Actions
+运行——安装 `requirements.txt` + `webui/requirements.txt` 后用 `unittest discover`
+配合临时 SQLite 路径执行，无需任何密钥。
+
+***
+
+## 9. FAQ
 
 **Q：图/视频模型 key 也要另配吗？**
 不用。AK/SK 会自动派生模型访问权限。只有当你想钉死一把特定的凭证时，才需要覆盖
@@ -378,7 +419,7 @@ AgentKit 沙箱工具有每个 tool 的会话配额（通常 2 个）。每个�
 
 ***
 
-## 9. 许可 / 署名
+## 10. 许可 / 署名
 
 Copyright (c) 2026 Alex Wang.
 

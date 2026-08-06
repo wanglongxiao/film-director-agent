@@ -1,0 +1,37 @@
+# CI: run the offline unit-test suite on every push / PR to main.
+# The suite is fully offline — no Volcengine credentials, network or sandbox
+# needed — so no repo secrets are required here.
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  unittest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The agent modules import veadk / google-adk; the BFF tests import
+      # fastapi + httpx. Install both requirement sets (no secrets needed).
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r webui/requirements.txt
+
+      # Isolate all sqlite stores into throwaway paths so the run is hermetic.
+      - name: Run unit tests
+        env:
+          VEADK_DOC_DRAFT_DB_PATH: ${{ runner.temp }}/draft.db
+          VEADK_OUTPUT_MEMORY_DB_PATH: ${{ runner.temp }}/cont.db
+          VEADK_LOCAL_KB_DB_PATH: ${{ runner.temp }}/kb.db
+        run: python -m unittest discover -s tests -p "test_*.py" -v

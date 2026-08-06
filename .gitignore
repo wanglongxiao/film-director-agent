@@ -16,10 +16,16 @@ assistant/.adk/
 # macOS Finder 元数据
 .DS_Store
 
-# 本仓库不包含 AgentKit / 容器 / CI 部署链路，保留在本地以便个人使用。
+# 本仓库不包含 AgentKit / 容器 / 部署链路，保留在本地以便个人使用。
 # 云端发布路径请参考 webui/deploy_vefaas.py（VeFaaS）。
 .agentkit/
 .github/
+# 例外：CI 单元测试工作流随仓库公开（离线、无密钥）。部署工作流 deploy.yml
+# 依赖本地 .agentkit/ + Dockerfile，故仍仅保留在本地。
+!.github/
+!.github/workflows/
+.github/workflows/*
+!.github/workflows/tests.yml
 .dockerignore
 Dockerfile
 pyproject.toml

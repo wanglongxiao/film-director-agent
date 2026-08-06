@@ -183,6 +183,7 @@ film-director-agent/
 │   ├── __init__.py                 # exposes root_agent
 │   ├── agent.py                    # tool assembly, model fallback, budget guards, auto-continue
 │   ├── document_tools.py           # create_document / read_document (sandbox-backed)
+│   ├── document_draft_store.py      # SQLite incremental draft store (long docs assembled server-side)
 │   ├── continuation_store.py       # SQLite output checkpoint (auto_continue_generation)
 │   └── local_knowledge_store.py    # SQLite bible: save_local_knowledge / search_local_knowledge
 ├── webui/                          # Self-hosted chat UI + BFF
@@ -196,15 +197,23 @@ film-director-agent/
 ├── .env.example                    # Placeholder env — copy to .env
 ├── config.yaml                     # VeADK static config (overridable by env)
 ├── requirements.txt                # Cloud AgentKit Runtime deps
+├── tests/                          # Offline unit-test suite (stdlib unittest)
+│   ├── run_all.py                  # Convenience runner (isolated temp DBs + quiet logs)
+│   ├── test_stores.py              # Draft / continuation / knowledge SQLite stores
+│   ├── test_agent.py               # Tools, budget guards, auto-continue, model fallback
+│   ├── test_server.py              # Web UI BFF: file extraction, SSE, /api/config, /api/file
+│   ├── test_document_tools.py      # create/read_document validation + sandbox session-id
+│   └── test_sandbox_files.py       # Sandbox file read guards + marker parsing
+├── .github/workflows/tests.yml     # CI: runs the unit-test suite on push / PR
 └── src/aw_director_agent/          # Console-script entry (project rename bookkeeping)
 ```
 
 > **Not in the public repo (kept locally by `.gitignore`):**
-> `.agentkit/agentkit.yaml`, `.github/workflows/`, `Dockerfile`, `.dockerignore`,
-> `pyproject.toml`, `uv.lock`, `.python-version` — these encode private
-> deploy identifiers and container/CI plumbing specific to the maintainer's
-> environment. You can recreate them for your own fork with
-> `agentkit init` + `uv init`.
+> `.agentkit/agentkit.yaml`, `.github/workflows/deploy.yml`, `Dockerfile`,
+> `.dockerignore`, `pyproject.toml`, `uv.lock`, `.python-version` — these encode
+> private deploy identifiers and container plumbing specific to the maintainer's
+> environment. (The offline `tests.yml` CI workflow *is* public.) You can
+> recreate the rest for your own fork with `agentkit init` + `uv init`.
 
 ### 5.1 Runtime shape
 
@@ -382,7 +391,40 @@ re-configuration.
 
 ***
 
-## 8. FAQ
+## 8. Testing & CI
+
+The repo ships a **fully offline** unit-test suite (Python standard-library
+`unittest` — no pytest, no network, no Volcengine credentials, no sandbox). It
+covers the director-assistant capabilities end-to-end at the logic level:
+
+| Area | What is verified |
+| ---- | ---------------- |
+| Long-script + mixed image/text docs | Incremental draft store: per-draft sequence, stats, ordered image/text interleave in assembled HTML, page breaks, HTML-escaping (injection safety) |
+| Poster / scene / storyboard images & key-shot videos | `_files_from_tool_response` turns `image_generate` / `video_generate` / doc results into UI `file` events (image / video / doc / extension-fallback) |
+| Image/video consistency pipeline | `image_generate` / `video_generate` auto model-fallback wrapper: only *model-related* errors downgrade; the draft workflow keeps figure order deterministic |
+| Mixed PDF / Word long-script generation | `draft_add_section` → `draft_add_image` → `draft_build_document` assembles HTML server-side and delegates to `create_document`; bad formats normalize to pdf |
+| History sessions | `/api/config` labels, `/api/file` path-guard + inline/attachment disposition (ASGITransport route tests) |
+| Send / Stop rollback & auto-continue | Per-turn output-budget guards, `MAX_TOKENS` → `auto_continue_generation` function-call, stop after max steps, checkpoint store |
+| Auto vs. non-auto mode & agent long-run | Budget callbacks, continuation checkpoints, disabled-retrieval-tool stripping, tool registration completeness |
+| Secret hygiene | `/api/config` never leaks the cloud key; sandbox reads refuse to hit the network without credentials |
+
+Run it locally:
+
+```bash
+# Convenience runner — isolated temp DBs + quiet VeADK logs
+uv run python tests/run_all.py
+# or the standard discover entrypoint
+uv run python -m unittest discover -s tests -p "test_*.py" -v
+```
+
+Expected: **75 tests, OK**. The same suite runs in GitHub Actions on every push
+/ PR to `main` via [`.github/workflows/tests.yml`](.github/workflows/tests.yml)
+— it installs `requirements.txt` + `webui/requirements.txt` and runs
+`unittest discover` with throwaway SQLite paths, so no secrets are needed.
+
+***
+
+## 9. FAQ
 
 **Q: Do I need to also configure image / video model keys?**
 No. The Volcengine AK/SK auto-derives model access. Only override
@@ -408,7 +450,7 @@ them.
 
 ***
 
-## 9. License / attribution
+## 10. License / attribution
 
 Copyright (c) 2026 Alex Wang.
 
