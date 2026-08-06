@@ -38,6 +38,7 @@ from veadk import Agent
 from veadk.utils.logger import get_logger
 
 from .continuation_store import continuation_store
+from .document_draft_store import document_draft_store
 from .local_knowledge_store import local_knowledge_store
 
 logger = get_logger(__name__)
@@ -150,6 +151,25 @@ INSTRUCTION = """\
 - 需要产出 Word / PDF / PPT / HTML 等剧本文档时，调用 create_document：
   传入 doc_format（docx/pdf/pptx/html）、filename、content（正文，"# "/"## " 作标题、
   "- " 作要点；pptx 中每个 "# " 起一页；html 也可直接传完整 HTML 字符串）、可选 title。
+  【重要】create_document 适用于短文档；当目标文档较长（如「完整剧本 + 多张分镜图混编成
+  PDF」），严禁把整份长正文一次性塞进 content —— 那必然超单轮输出上限被截断且无法续写。
+  长文档一律改用下面的「增量草稿」工作流。
+
+【长文档「增量草稿 → 服务端组装」工作流（解决单轮 MAX tokens 的关键，务必遵守）】
+当任务是「生成较长剧本/分集/分镜 + 生成图片，最后混编成一份 PDF/文档」这类长任务时，
+不要试图在某一轮把全部内容重新输出给 create_document。改为分多轮增量落盘、最后一次组装：
+0. 开始一份全新文档前，先调用 draft_reset 清空同一 draft_id 的旧片段，避免混入上一份文档。
+1. 每写完一小段剧本/正文（例如一场戏、几个 beat、一段分镜），立即调用 draft_add_section
+   把这一小段写入本地草稿（body 传这一小段文字，可选 title 作小标题）。每次只写一小段，
+   保证单轮输出很短，永远不会触发输出上限。
+2. 每用 image_generate 生成一张图并拿到 URL 后，立即调用 draft_add_image，把该图 URL 放到
+   文档当前位置（caption 传分镜说明）。文字与图片按调用顺序天然混排。
+3. 使用同一个 draft_id（默认 "default"）贯穿整份文档；可随时用 draft_status 查看已累计的
+   章节数/图片数/字数，判断是否还需继续补充。
+4. 全部内容都已通过 draft_add_section / draft_add_image 落盘后，最后调用一次
+   draft_build_document（传 filename、doc_format=pdf、可选 title），由服务端从本地 sqlite
+   读回全部片段拼成完整文档并生成 PDF。此步你只传几个短参数，不需要重新输出任何长正文，
+   因此不受单轮 token 限制，长任务得以稳定完成。
 - 需要读取/校验此前生成的 Word / PDF / PPT / HTML 文件内容时，调用 read_document，
   传入 path（可用 create_document 返回的路径或纯文件名）。
 - 需要运行或验证代码（如脚本统计、数据处理、格式转换）时，用 run_code 直接
@@ -397,11 +417,229 @@ def search_local_knowledge(
     }
 
 
+def _draft_ids(tool_context: ToolContext) -> tuple[str, str, str]:
+    session = tool_context.session
+    return session.app_name, tool_context.user_id, session.id
+
+
+def draft_add_section(
+    body: str,
+    title: str = "",
+    draft_id: str = "default",
+    tool_context: ToolContext | None = None,
+) -> dict:
+    """Append one script/text section to a local document draft (sqlite).
+
+    Use this to build a long document incrementally, one small piece per turn, so a
+    single turn never exceeds the output-token budget. Sections are stored in order
+    and interleaved with images, then assembled into a full PDF/HTML/Word file later
+    by draft_build_document — you do NOT resend the whole document at build time.
+
+    Args:
+        body: The text of this section. Lines starting with "# "/"## " become
+            headings, "- "/"* " become bullets; everything else is a paragraph.
+            Keep each call to a manageable chunk (e.g. one scene / a few beats).
+        title: Optional heading shown above this section.
+        draft_id: Draft identifier; use one stable id per document (default "default").
+    Returns:
+        A dict with ok/draft_id/seq and running stats of the draft.
+    """
+    if tool_context is None:
+        return {"ok": False, "message": "tool_context missing"}
+    if not (body or "").strip() and not (title or "").strip():
+        return {"ok": False, "message": "empty section"}
+
+    app_name, user_id, session_id = _draft_ids(tool_context)
+    seq = document_draft_store.add_item(
+        app_name=app_name,
+        user_id=user_id,
+        session_id=session_id,
+        draft_id=draft_id or "default",
+        kind="section",
+        title=title or "",
+        body=body or "",
+    )
+    stats = document_draft_store.stats(
+        app_name=app_name,
+        user_id=user_id,
+        session_id=session_id,
+        draft_id=draft_id or "default",
+    )
+    return {"ok": True, "store": "sqlite", "draft_id": draft_id or "default", "seq": seq, "stats": stats}
+
+
+def draft_add_image(
+    url: str,
+    caption: str = "",
+    draft_id: str = "default",
+    tool_context: ToolContext | None = None,
+) -> dict:
+    """Append one generated image (by its public URL) to a local document draft.
+
+    Call this right after image_generate returns a URL, to place the image at the
+    current position in the document (interleaved with text sections). The image is
+    embedded by URL at build time, so its bytes never go through the LLM context.
+
+    Args:
+        url: The public image URL returned by image_generate.
+        caption: Optional caption / shot description shown under the image.
+        draft_id: Draft identifier; must match the sections' draft_id (default "default").
+    Returns:
+        A dict with ok/draft_id/seq and running stats of the draft.
+    """
+    if tool_context is None:
+        return {"ok": False, "message": "tool_context missing"}
+    if not (url or "").strip():
+        return {"ok": False, "message": "empty url"}
+
+    app_name, user_id, session_id = _draft_ids(tool_context)
+    seq = document_draft_store.add_item(
+        app_name=app_name,
+        user_id=user_id,
+        session_id=session_id,
+        draft_id=draft_id or "default",
+        kind="image",
+        url=url or "",
+        caption=caption or "",
+    )
+    stats = document_draft_store.stats(
+        app_name=app_name,
+        user_id=user_id,
+        session_id=session_id,
+        draft_id=draft_id or "default",
+    )
+    return {"ok": True, "store": "sqlite", "draft_id": draft_id or "default", "seq": seq, "stats": stats}
+
+
+def draft_status(
+    draft_id: str = "default",
+    tool_context: ToolContext | None = None,
+) -> dict:
+    """Report how many sections/images/chars are saved in a document draft so far.
+
+    Use it to check progress across turns before deciding whether to keep adding
+    content or to build the final document.
+
+    Args:
+        draft_id: Draft identifier (default "default").
+    Returns:
+        A dict with ok/stats (draft_id, total_items, sections, images, total_chars).
+    """
+    if tool_context is None:
+        return {"ok": False, "message": "tool_context missing"}
+    app_name, user_id, session_id = _draft_ids(tool_context)
+    stats = document_draft_store.stats(
+        app_name=app_name,
+        user_id=user_id,
+        session_id=session_id,
+        draft_id=draft_id or "default",
+    )
+    return {"ok": True, "store": "sqlite", "stats": stats}
+
+
+def draft_reset(
+    draft_id: str = "default",
+    tool_context: ToolContext | None = None,
+) -> dict:
+    """Clear all saved items of a document draft to start a fresh document.
+
+    Call this before beginning a brand-new document in an existing session so leftover
+    sections/images from a previous document are not mixed in.
+
+    Args:
+        draft_id: Draft identifier to clear (default "default").
+    Returns:
+        A dict with ok/deleted (number of items removed).
+    """
+    if tool_context is None:
+        return {"ok": False, "message": "tool_context missing"}
+    app_name, user_id, session_id = _draft_ids(tool_context)
+    deleted = document_draft_store.clear(
+        app_name=app_name,
+        user_id=user_id,
+        session_id=session_id,
+        draft_id=draft_id or "default",
+    )
+    return {"ok": True, "store": "sqlite", "draft_id": draft_id or "default", "deleted": deleted}
+
+
+def draft_build_document(
+    filename: str,
+    doc_format: str = "pdf",
+    title: str = "",
+    draft_id: str = "default",
+    tool_context: ToolContext | None = None,
+) -> dict:
+    """Assemble all saved draft sections + images into ONE final document (PDF/HTML/Word).
+
+    This is the key to finishing long "script + images -> PDF" tasks within token
+    limits: the full document is assembled server-side from the local sqlite draft,
+    so the LLM only passes a few small arguments here and never re-emits the long
+    body. Interleaved text/images are rendered into a printable layout, then converted
+    to the requested format inside the AgentKit sandbox (reusing create_document).
+
+    Call this only after all sections/images have been added via draft_add_section /
+    draft_add_image.
+
+    Args:
+        filename: Target file name (extension optional; normalized to doc_format).
+        doc_format: One of "pdf", "html", "docx" (default "pdf").
+        title: Optional document title rendered at the top.
+        draft_id: Draft identifier to assemble (default "default").
+    Returns:
+        The create_document result dict ({ok, path, fmt, size_bytes, ...}), plus the
+        assembled draft stats; or {ok: False, error} if the draft is empty.
+    """
+    if tool_context is None:
+        return {"ok": False, "message": "tool_context missing"}
+
+    from .document_tools import create_document
+
+    app_name, user_id, session_id = _draft_ids(tool_context)
+    resolved_draft = draft_id or "default"
+    stats = document_draft_store.stats(
+        app_name=app_name,
+        user_id=user_id,
+        session_id=session_id,
+        draft_id=resolved_draft,
+    )
+    if stats.get("total_items", 0) == 0:
+        return {
+            "ok": False,
+            "error": f"draft '{resolved_draft}' is empty; add sections/images first "
+            "via draft_add_section / draft_add_image.",
+        }
+
+    html = document_draft_store.assemble_html(
+        app_name=app_name,
+        user_id=user_id,
+        session_id=session_id,
+        draft_id=resolved_draft,
+        title=title or "",
+    )
+    fmt = (doc_format or "pdf").lower().strip()
+    if fmt not in ("pdf", "html", "docx"):
+        fmt = "pdf"
+
+    # 复用沙箱 create_document：把整份 HTML 作为原始 HTML 内容传入；服务端已拼好，
+    # LLM 不参与大文本输出，因此不受单轮 token 限制。
+    result = create_document(
+        doc_format=fmt,
+        filename=filename,
+        content=html,
+        title=title or None,
+        tool_context=tool_context,
+    )
+    if isinstance(result, dict):
+        result["draft_id"] = resolved_draft
+        result["assembled_from"] = stats
+    return result
+
+
 def _extract_user_text_from_context(callback_context) -> str:
     user_content = getattr(callback_context, "user_content", None)
     if not user_content or not getattr(user_content, "parts", None):
         return ""
-
     text_parts: list[str] = []
     for part in user_content.parts:
         text = getattr(part, "text", None)
@@ -918,6 +1156,11 @@ root_agent = Agent(
         *_build_tools(),
         save_local_knowledge,
         search_local_knowledge,
+        draft_add_section,
+        draft_add_image,
+        draft_status,
+        draft_reset,
+        draft_build_document,
         auto_continue_generation,
     ],
     generate_content_config=types.GenerateContentConfig(

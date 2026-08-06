@@ -160,6 +160,23 @@
     width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block;
     border-radius: 10px; border: 1px solid var(--border); cursor: zoom-in;
   }
+  /* 图片放大查看（lightbox）：点击缩略图放大，点击遮罩/图片/按 Esc 恢复 */
+  .lightbox {
+    display: none; position: fixed; inset: 0; z-index: 1000;
+    background: rgba(0,0,0,0.86); align-items: center; justify-content: center;
+    padding: 24px; cursor: zoom-out;
+  }
+  .lightbox.show { display: flex; }
+  .lightbox img {
+    max-width: 96vw; max-height: 92vh; object-fit: contain;
+    border-radius: 8px; box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+  }
+  .lightbox .lb-close {
+    position: absolute; top: 16px; right: 20px; font-size: 26px; line-height: 1;
+    color: #fff; background: rgba(255,255,255,0.12); border: none; border-radius: 999px;
+    width: 40px; height: 40px; cursor: pointer;
+  }
+  .lightbox .lb-close:hover { background: rgba(255,255,255,0.24); }
   .att-video-card {
     grid-column: span 3; min-width: 0; padding: 10px;
     background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
@@ -290,6 +307,11 @@
       <div class="hint">Enter 发送 · Shift+Enter 换行 · apikey 由后端保管，不会下发到浏览器</div>
     </footer>
   </div>
+</div>
+
+<div class="lightbox" id="lightbox" aria-hidden="true">
+  <button class="lb-close" id="lightboxClose" type="button" title="关闭">×</button>
+  <img id="lightboxImg" src="" alt="" />
 </div>
 
 <script>
@@ -467,6 +489,27 @@ function renderMessage(m) {
 }
 function scrollDown() { const m = document.querySelector("main"); m.scrollTop = m.scrollHeight; }
 
+/* ============ 图片放大查看（lightbox） ============ */
+const lightboxEl = $("lightbox");
+const lightboxImg = $("lightboxImg");
+function openLightbox(url, alt) {
+  lightboxImg.src = url;
+  lightboxImg.alt = alt || "image";
+  lightboxEl.classList.add("show");
+  lightboxEl.setAttribute("aria-hidden", "false");
+}
+function closeLightbox() {
+  lightboxEl.classList.remove("show");
+  lightboxEl.setAttribute("aria-hidden", "true");
+  lightboxImg.src = "";
+}
+// 点击遮罩层或放大后的图片任意位置都恢复；关闭按钮与 Esc 同样恢复
+lightboxEl.addEventListener("click", closeLightbox);
+$("lightboxClose").addEventListener("click", (e) => { e.stopPropagation(); closeLightbox(); });
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && lightboxEl.classList.contains("show")) closeLightbox();
+});
+
 // 渲染 Agent 生成的文件：图片直接显示、视频可播放、文档预览/下载
 function renderFile(container, f) {
   if (f.kind === "image") {
@@ -476,6 +519,8 @@ function renderFile(container, f) {
     const img = document.createElement("img");
     img.className = "att-img"; img.src = f.url; img.alt = f.name || "image";
     img.loading = "lazy";
+    // 点击缩略图在页面内放大查看（lightbox），再点击恢复；不再跳转新标签页
+    a.addEventListener("click", (e) => { e.preventDefault(); openLightbox(f.url, f.name); });
     a.appendChild(img); container.appendChild(a);
   } else if (f.kind === "video") {
     const card = document.createElement("div");
