@@ -86,7 +86,7 @@ def generate_images(
         except Exception as exc:  # noqa: BLE001
             if on_error is not None:
                 return on_error(idx, exc)
-            return f"(image generation failed: {exc})"
+            return "(image generation failed)" if config.WEBUI_CLOUD_MODE else f"(image generation failed: {exc})"
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         # executor.map preserves input ordering of the results.

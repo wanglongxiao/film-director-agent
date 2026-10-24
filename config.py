@@ -10,6 +10,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+WEBUI_CLOUD_MODE = os.getenv("WEBUI_CLOUD_MODE", "false").lower() == "true"
+WEBUI_ACCESS_PASSWORD = os.getenv("WEBUI_ACCESS_PASSWORD", "")
+WEBUI_SESSION_SECRET = os.getenv("WEBUI_SESSION_SECRET", "")
+if WEBUI_CLOUD_MODE and not (WEBUI_ACCESS_PASSWORD and WEBUI_SESSION_SECRET):
+    raise RuntimeError("云端必须配置准入密码和会话签名密钥。")
+
 # Base URL for model invocation
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://ark.ap-southeast.bytepluses.com/api/v3")
 

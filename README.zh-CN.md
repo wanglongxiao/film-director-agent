@@ -4,7 +4,11 @@
 
 将故事创意转化为人物侧写、完整大纲、逐章生成的中短篇小说和电影分镜。采用 FastAPI、原生 JavaScript、BytePlus ModelArk 文字模型与 Seedream 图片生成，支持流式输出与 Word 导出。
 
-## Demo 视频
+## Demo
+
+[打开 Demo Site](https://sh0o6o11ievepvnqcjrvg.apigateway-ap-southeast-1.apigw-byteplus.com/)
+
+云端演示需要准入密码。
 
 [观看 movieagent-demo.mp4](https://github.com/wanglongxiao/film-director-agent/blob/main/movieagent-demo.mp4)
 
@@ -37,22 +41,30 @@ uv run --with-requirements requirements.txt uvicorn app.main:app --host 127.0.0.
 
 ## 配置
 
-密钥仅放在服务端 `.env`；公开模板 `.env.example` 的密钥字段为空。模型端点 ID 是配置项，不是密钥，需要替换为自己账户可用的端点。
+密钥和模型端点仅保留在服务端；公开模板 `.env.example` 的对应字段为空，需要填写自己账户可用的密钥和端点。
 
 | 配置项 | 示例 |
 | --- | --- |
 | `ARK_API_KEY` | 私有密钥，禁止提交 |
 | `LLM_BASE_URL` | `https://ark.ap-southeast.bytepluses.com/api/v3` |
-| `MAIN_AGENT_MODEL` | `ep-20261024085949-9rwj7` |
+| `MAIN_AGENT_MODEL` | 自己账户的主 Agent 端点 |
 | `MAIN_AGENT_MAX_TOKENS` | `300000` |
-| `SCRIPT_DEEPSEEK_1017_MODEL` | `ep-20261024085949-9rwj7` |
+| `SCRIPT_DEEPSEEK_1017_MODEL` | 自己账户的 DeepSeek 端点 |
 | `SCRIPT_DEEPSEEK_1017_MAX_TOKENS` | `200000` |
-| `SCRIPT_SEED_SC_0215_MODEL` | `ep-20260731212724-gglbc` |
+| `SCRIPT_SEED_SC_0215_MODEL` | 自己账户的 Seed 端点 |
 | `SCRIPT_SEED_SC_0215_MAX_TOKENS` | `32000` |
-| `LLM_MODEL_IMAGE` | `ep-20261003165202-jlrtk` |
+| `LLM_MODEL_IMAGE` | 自己账户的 Seedream 端点 |
 | `IMAGE_SIZE` | `2048x1536`（4:3） |
 
 主 Agent 负责讨论、背景、人物侧写、大纲和信息补全；所选剧本模型负责章节规划、正文、连续性摘要和分镜。网页通过 `/api/models` 自动读取模型名称及配置上限。实际输出能力、请求上限和内容限制以模型服务商为准。
+
+## BytePlus veFaaS 部署
+
+函数使用 Python 3.12，启动命令为 `bash run_cloud.sh`；Linux Python 依赖放在 `vendor/`，Word 导出所需的 Linux Node.js 放在 `runtime/bin/`。通过服务端环境变量注入模型参数、`ARK_API_KEY`、`WEBUI_CLOUD_MODE=true`、`WEBUI_ACCESS_PASSWORD` 及随机生成的 `WEBUI_SESSION_SECRET`。部署包不包含 `.env`、云端 AK/SK 和本地数据库。
+
+`MinInstance` 和 `MaxInstance` 均设为 `1`。API 网关路由匹配 `/` 前缀并允许应用使用的 HTTP 方法。长文本生成使用函数超时 900 秒、API 网关路由超时 900,000 毫秒。
+
+云端页面、静态资源和 API 均需登录，本地模式不需要密码。`/api/models` 只返回模型名称及 Token 上限。云端 SQLite 默认路径为 `/tmp/movieagent/script.db`，实例重建时数据会丢失；重建前请导出作品，或挂载可写持久化存储并通过 `SCRIPT_DB_PATH` 指定路径。
 
 ## 写作与导出
 

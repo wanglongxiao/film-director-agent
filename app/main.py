@@ -30,6 +30,7 @@ from .schemas import (
     SessionState,
 )
 from .store import SessionStore
+from .access import CloudAccess
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
@@ -52,6 +53,14 @@ async def _lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Movie Script Agent", version="0.4.0", lifespan=_lifespan)
+app.add_middleware(CloudAccess)
+
+
+def public_error(exc: Exception) -> str:
+    """避免第三方异常将模型端点、密钥或签名 URL 返回浏览器。"""
+    if config.WEBUI_CLOUD_MODE:
+        return "生成失败，请重试。"
+    return str(exc)
 
 
 @app.get("/api/health")
@@ -62,7 +71,7 @@ def health() -> dict:
 @app.get("/api/models")
 def models() -> dict:
     return {"default": config.DEFAULT_TEXT_MODEL, "models": [
-        {"id": key, **value} for key, value in config.CHAT_MODELS.items()
+        {"id": key, "max_tokens": value["max_tokens"]} for key, value in config.CHAT_MODELS.items()
     ]}
 
 
@@ -112,7 +121,7 @@ def chat(sid: str, body: ChatRequest) -> ChatResponse:
     try:
         reply, new_state = agent.run_agent(item["state"], item["history"], body.message)
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=f"agent error: {exc}") from exc
+        raise HTTPException(status_code=500, detail=public_error(exc)) from exc
     store.add_history(sid, "user", body.message)
     store.add_history(sid, "assistant", reply)
     if new_state.stage in ("script_type", "episodes") and (
@@ -178,7 +187,7 @@ def chat_stream(sid: str, body: ChatRequest) -> StreamingResponse:
         except GeneratorExit:
             raise
         except Exception as exc:  # noqa: BLE001
-            yield json.dumps({"type": "error", "message": str(exc)}, ensure_ascii=False) + "\n"
+            yield json.dumps({"type": "error", "message": public_error(exc)}, ensure_ascii=False) + "\n"
 
     return StreamingResponse(generate(), media_type="application/x-ndjson")
 
@@ -210,7 +219,7 @@ def generate_episode(sid: str, body: EpisodeRequest) -> EpisodeResponse:
     try:
         episode = agent.generate_episode(state, body.number, body.storyboards_count)
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=f"episode generation failed: {exc}") from exc
+        raise HTTPException(status_code=500, detail=public_error(exc)) from exc
     if body.with_images:
         prompts = [
             f"Storyboard: {sb.shot}\nScene: {sb.scene}".strip()
@@ -360,7 +369,7 @@ def generate_novel(sid: str, body: NovelRequest) -> StreamingResponse:
         except GeneratorExit:
             raise
         except Exception as exc:
-            yield encode({"type": "error", "message": str(exc)})
+            yield encode({"type": "error", "message": public_error(exc)})
         finally:
             store.end_novel(sid, cancel_event)
 
@@ -397,7 +406,7 @@ def export_word(sid: str) -> Response:
             capture_output=True, check=True, timeout=60,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail=public_error(exc)) from exc
     except (subprocess.SubprocessError, OSError) as exc:
         raise HTTPException(status_code=500, detail="Word 导出失败，请确认已运行 npm ci。") from exc
     title = state.novel.title if state.novel else "电影剧本"

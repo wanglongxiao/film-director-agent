@@ -19,7 +19,10 @@ import config
 from .schemas import SessionState
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(config.__file__))
-DEFAULT_DB_PATH = os.path.join(PROJECT_ROOT, "data", "script.db")
+DEFAULT_DB_PATH = os.getenv("SCRIPT_DB_PATH") or (
+    "/tmp/movieagent/script.db" if config.WEBUI_CLOUD_MODE
+    else os.path.join(PROJECT_ROOT, "data", "script.db")
+)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS tasks (

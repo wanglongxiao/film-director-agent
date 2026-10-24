@@ -6,6 +6,10 @@ A streaming writing app that turns a story idea into character profiles, a compl
 
 ## Demo
 
+[Open Demo Site](https://sh0o6o11ievepvnqcjrvg.apigateway-ap-southeast-1.apigw-byteplus.com/)
+
+The cloud demo requires an access password.
+
 [Watch movieagent-demo.mp4](https://github.com/wanglongxiao/film-director-agent/blob/main/movieagent-demo.mp4)
 
 The video shows an earlier version; the current app also supports full manuscripts, model selection, and Word export.
@@ -37,22 +41,30 @@ Open http://127.0.0.1:8000. Restart the backend after changing `.env`.
 
 ## Configuration
 
-Keys stay in `.env` on the server. `.env.example` contains empty key fields. Endpoint IDs are configuration, not credentials; replace them with endpoints available in your own account.
+Keys and endpoint IDs stay on the server. `.env.example` leaves these fields empty; fill them with values from your own account.
 
 | Setting | Example |
 | --- | --- |
 | `ARK_API_KEY` | Your private key; never commit it |
 | `LLM_BASE_URL` | `https://ark.ap-southeast.bytepluses.com/api/v3` |
-| `MAIN_AGENT_MODEL` | `ep-20261024085949-9rwj7` |
+| `MAIN_AGENT_MODEL` | Your main agent endpoint |
 | `MAIN_AGENT_MAX_TOKENS` | `300000` |
-| `SCRIPT_DEEPSEEK_1017_MODEL` | `ep-20261024085949-9rwj7` |
+| `SCRIPT_DEEPSEEK_1017_MODEL` | Your DeepSeek endpoint |
 | `SCRIPT_DEEPSEEK_1017_MAX_TOKENS` | `200000` |
-| `SCRIPT_SEED_SC_0215_MODEL` | `ep-20260731212724-gglbc` |
+| `SCRIPT_SEED_SC_0215_MODEL` | Your Seed endpoint |
 | `SCRIPT_SEED_SC_0215_MAX_TOKENS` | `32000` |
-| `LLM_MODEL_IMAGE` | `ep-20261003165202-jlrtk` |
+| `LLM_MODEL_IMAGE` | Your Seedream endpoint |
 | `IMAGE_SIZE` | `2048x1536` (4:3) |
 
 The main agent handles discussion and story setup. The selected writer handles chapter plans, prose, summaries, and storyboards. `/api/models` supplies the web model list and configured output budgets. Actual output limits and available content depend on the model provider.
+
+## BytePlus veFaaS
+
+Use `run_cloud.sh` as the function command (`bash run_cloud.sh`), with Python 3.12, Linux dependencies in `vendor/`, and Linux Node.js in `runtime/bin/` for Word export. Inject only model settings, `ARK_API_KEY`, `WEBUI_CLOUD_MODE=true`, `WEBUI_ACCESS_PASSWORD`, and a random `WEBUI_SESSION_SECRET` through server environment variables. Do not upload `.env`, cloud AK/SK, or local databases.
+
+Set both `MinInstance` and `MaxInstance` to `1`. Bind an API gateway route with path prefix `/` and all app HTTP methods. For long generation requests, use a function timeout of 900 seconds and an API gateway route timeout of 900,000 milliseconds.
+
+Cloud pages, static resources, and APIs require login; local mode has no password. `/api/models` returns model names and token budgets only. The cloud SQLite default is `/tmp/movieagent/script.db`, which is lost when an instance is replaced. Export work before replacing the instance, or configure a writable persistent volume with `SCRIPT_DB_PATH`.
 
 ## Writing and export
 
