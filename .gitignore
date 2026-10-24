@@ -48,10 +48,3 @@ output_test.*
 htmlcov/
 .trae/
 .vscode/
-.agentkit/
-assistant/.adk/
-.dockerignore
-Dockerfile
-pyproject.toml
-uv.lock
-.python-version

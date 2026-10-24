@@ -35,8 +35,6 @@ uv run --with-requirements requirements.txt uvicorn app.main:app --host 127.0.0.
 
 打开 http://127.0.0.1:8000。修改 `.env` 后重启后端；必要时使用 `Cmd+Shift+R` 刷新页面。
 
-远端原有 VeADK 实现保留在 `assistant/`、`webui/`、`src/` 和 `main.py`，相应依赖及离线测试也保留。其独立配置位于 `.env.example` 中 Movie Agent 配置之后。
-
 ## 配置
 
 密钥仅放在服务端 `.env`；公开模板 `.env.example` 的密钥字段为空。模型端点 ID 是配置项，不是密钥，需要替换为自己账户可用的端点。

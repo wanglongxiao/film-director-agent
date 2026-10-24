@@ -35,8 +35,6 @@ uv run --with-requirements requirements.txt uvicorn app.main:app --host 127.0.0.
 
 Open http://127.0.0.1:8000. Restart the backend after changing `.env`.
 
-The previous VeADK implementation remains in `assistant/`, `webui/`, `src/`, and `main.py`. Its dependencies and offline tests are retained; its separate settings are listed below the Movie Agent settings in `.env.example`.
-
 ## Configuration
 
 Keys stay in `.env` on the server. `.env.example` contains empty key fields. Endpoint IDs are configuration, not credentials; replace them with endpoints available in your own account.
