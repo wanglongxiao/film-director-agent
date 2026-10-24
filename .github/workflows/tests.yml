@@ -31,6 +31,10 @@ jobs:
       # Isolate all sqlite stores into throwaway paths so the run is hermetic.
       - name: Run unit tests
         env:
+          MODEL_AGENT_API_KEY: offline-test-placeholder
+          MODEL_AGENT_NAME: offline-test-model
+          MODEL_AGENT_PROVIDER: openai
+          MODEL_AGENT_API_BASE: https://example.invalid/v1
           VEADK_DOC_DRAFT_DB_PATH: ${{ runner.temp }}/draft.db
           VEADK_OUTPUT_MEMORY_DB_PATH: ${{ runner.temp }}/cont.db
           VEADK_LOCAL_KB_DB_PATH: ${{ runner.temp }}/kb.db

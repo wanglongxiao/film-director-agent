@@ -1,0 +1,10 @@
+title = "Movie Agent secret detection"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "byteplus-modelark-api-key"
+description = "BytePlus ModelArk API credential"
+regex = '''VxCgNvLTE\.[A-Za-z0-9_-]{40,}\.[A-Za-z0-9_-]{20,}'''
+keywords = ["VxCgNvLTE"]

@@ -1,0 +1,30 @@
+#!/usr/bin/env python3
+"""在提交前拒绝私有文件，并扫描暂存区中的密钥。"""
+import pathlib
+import re
+import shutil
+import subprocess
+import sys
+
+paths = subprocess.check_output(
+    ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z"]
+).decode().split("\0")
+blocked = []
+for name in filter(None, paths):
+    path = pathlib.PurePosixPath(name)
+    parts = set(path.parts)
+    if (
+        (path.name.startswith(".env") and path.name != ".env.example")
+        or path.suffix.lower() in {".pem", ".key", ".p12", ".pfx", ".log", ".pid", ".sqlite", ".sqlite3", ".db"}
+        or parts & {"data", "node_modules", "__pycache__", ".trae", ".vscode", ".secrets"}
+        or re.match(r"(credentials|service-account).*\.json$", path.name)
+    ):
+        blocked.append(name)
+if blocked:
+    print("提交已阻止：暂存区包含私有配置、密钥或运行文件。", file=sys.stderr)
+    print("\n".join(blocked), file=sys.stderr)
+    sys.exit(1)
+if not shutil.which("gitleaks"):
+    print("提交已阻止：请安装 Gitleaks（macOS: brew install gitleaks）。", file=sys.stderr)
+    sys.exit(1)
+sys.exit(subprocess.call(["gitleaks", "git", "--pre-commit", "--staged", "--redact", "."]))

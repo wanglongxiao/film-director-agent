@@ -1,31 +1,55 @@
-__pycache__/
-*.pyc
-.venv/
+# Secrets
 .env
+.env.*
+!.env.example
+.envrc
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+service-account*.json
+.secrets/
 
-# deploy 日志：含 account id / IAM role / VeFaaS 及网关等内部信息，勿提交
-deploy.log
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
 
-# 运行期/会话产物（本地 ADK 会话库、沙箱缓存、编辑器技能缓存）
-.trae/
-assistant/.adk/
-
-# IDE 本地设置
-.vscode/
-
-# macOS Finder 元数据
+# OS
 .DS_Store
 
-# 本仓库不包含 AgentKit / 容器 / 部署链路，保留在本地以便个人使用。
-# 云端发布路径请参考 webui/deploy_vefaas.py（VeFaaS）。
+# Runtime data (SQLite archive)
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Word export dependencies
+node_modules/
+
+# Logs, temporary output and local tools
+*.log
+*.pid
+*.tmp
+*.bak
+*.swp
+debug/
+logs/
+tmp/
+temp/
+output_test.*
+.pytest_cache/
+.coverage
+htmlcov/
+.trae/
+.vscode/
 .agentkit/
-.github/
-# 例外：CI 单元测试工作流随仓库公开（离线、无密钥）。部署工作流 deploy.yml
-# 依赖本地 .agentkit/ + Dockerfile，故仍仅保留在本地。
-!.github/
-!.github/workflows/
-.github/workflows/*
-!.github/workflows/tests.yml
+assistant/.adk/
 .dockerignore
 Dockerfile
 pyproject.toml

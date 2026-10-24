@@ -1,0 +1,9 @@
+{
+  "name": "movieagent-word-export",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DOCX export for the Movie Script Agent",
+  "dependencies": {
+    "docx": "9.7.1"
+  }
+}
