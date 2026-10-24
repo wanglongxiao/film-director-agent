@@ -3,6 +3,10 @@
 .env.*
 !.env.example
 .envrc
+.netrc
+id_rsa
+id_ed25519
+id_ecdsa
 *.pem
 *.key
 *.p12
@@ -48,3 +52,4 @@ output_test.*
 htmlcov/
 .trae/
 .vscode/
+.screenshots/

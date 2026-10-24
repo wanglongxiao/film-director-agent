@@ -64,6 +64,19 @@ The main agent handles discussion and story setup. The selected writer handles c
 
 Refreshing, closing, or changing language creates a new interactive task. Completed chapters and images remain in `data/script.db`; an archived task can be exported through `/api/sessions/{id}/export/word` when its ID is known. Private runtime data is excluded from Git.
 
+## Project files and local data
+
+`app/main.py` is the FastAPI entry point; `app/static/` holds the five-language UI. `config.py` loads `.env`, and `app/persist.py` reads and writes the active `data/script.db` database. The database contains task settings, completed prose, image URLs, and cached portraits; it is not a temporary file. Keep it to preserve your archive. SQLite connections open for each operation, so the database need not appear continuously in the server's open-file list.
+
+`package.json` and `package-lock.json` provide Word export dependencies. `movieagent-demo.mp4` is the demo. `.githooks/`, `.gitleaks.toml`, and `.github/workflows/secrets.yml` protect commits. Local `.env`, `data/`, `node_modules/`, and editor settings stay out of Git. The unrelated earlier remote implementation has been removed.
+
+To check the running server:
+
+```bash
+curl --fail http://127.0.0.1:8000/api/health
+curl --fail http://127.0.0.1:8000/api/models
+```
+
 ## Before committing
 
 Install [Gitleaks](https://github.com/gitleaks/gitleaks) (`brew install gitleaks` on macOS) and enable the included hook:
@@ -74,6 +87,6 @@ gitleaks git --redact --log-opts="--all" .
 git diff --cached --name-only
 ```
 
-The pre-commit hook checks staged files, rejects private configuration and runtime files, and fails if Gitleaks is unavailable. CI also scans the full Git history. `.gitignore` excludes environment files, private key files, logs, caches, editor settings, and SQLite data. Only `.env.example` is public.
+The pre-commit hook checks staged files, rejects private configuration and runtime files, compares staged content with keys in local `.env` files without printing them, and fails if Gitleaks is unavailable. Gitleaks detects common credentials and the ModelArk key format. CI also scans the full Git history. `.gitignore` excludes environment files, private key files, logs, caches, editor settings, and SQLite data. Only `.env.example` is public.
 
 These checks reduce the risk of accidental exposure; they cannot guarantee detection of every possible credential. If a key has already been shared or published, revoke it and issue a new one.

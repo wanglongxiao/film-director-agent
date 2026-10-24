@@ -64,6 +64,19 @@ uv run --with-requirements requirements.txt uvicorn app.main:app --host 127.0.0.
 
 刷新、关闭或切换语言会新建交互任务。完成章节及图片保存在 `data/script.db`；知道原任务 ID 时，可通过 `/api/sessions/{id}/export/word` 导出归档。私人运行数据不提交到 Git。
 
+## 项目目录与本地数据
+
+`app/main.py` 是 FastAPI 入口，`app/static/` 是五语言页面。`config.py` 读取 `.env`，`app/persist.py` 读写实际使用的 `data/script.db`。数据库保存任务设定、完成正文、图片 URL 和角色图片缓存，属于有效归档，不是临时文件，应保留。数据库连接按操作打开和关闭，因此不一定持续出现在服务进程的打开文件列表中。
+
+`package.json` 和 `package-lock.json` 提供 Word 导出依赖；`movieagent-demo.mp4` 是演示视频。`.githooks/`、`.gitleaks.toml` 和 `.github/workflows/secrets.yml` 用于提交保护。本地 `.env`、`data/`、`node_modules/` 和编辑器设置不提交。与当前项目无关的旧远端实现已删除。
+
+检查运行中的服务：
+
+```bash
+curl --fail http://127.0.0.1:8000/api/health
+curl --fail http://127.0.0.1:8000/api/models
+```
+
 ## 提交前密钥检查
 
 安装 [Gitleaks](https://github.com/gitleaks/gitleaks)（macOS 可用 `brew install gitleaks`），启用仓库提交钩子：
@@ -74,6 +87,6 @@ gitleaks git --redact --log-opts="--all" .
 git diff --cached --name-only
 ```
 
-提交钩子检查暂存区、拒绝私有配置和运行文件，并在未安装 Gitleaks 时阻止提交。CI 扫描完整 Git 历史。`.gitignore` 排除环境文件、私钥文件、日志、缓存、编辑器配置和 SQLite 数据，只公开 `.env.example`。
+提交钩子检查暂存区、拒绝私有配置和运行文件，并与本地 `.env` 中的密钥进行精确比对，且不输出密钥；未安装 Gitleaks 时阻止提交。Gitleaks 检测常见凭据及 ModelArk 密钥格式，CI 扫描完整 Git 历史。`.gitignore` 排除环境文件、私钥文件、日志、缓存、编辑器配置和 SQLite 数据，只公开 `.env.example`。
 
 这些检查降低误泄露风险，无法保证识别所有形式的凭据。已分享或公开的密钥应撤销并重新签发。

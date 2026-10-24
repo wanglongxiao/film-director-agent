@@ -273,6 +273,46 @@ const interfaceStrings = {
 for (const [language, strings] of Object.entries(interfaceStrings)) {
   Object.assign(window.I18N[language], strings);
 }
+const errorStrings = {
+  "zh-CN": {
+    validationFail: "输入不符合要求，请检查章节数、篇幅或模型选项。",
+    chapterIncomplete: (n) => `第 ${n} 章未完成；已完成章节保留，可继续生成。`,
+    portraitReadFail: (name) => `角色「${name}」的图片无法读取，请重试或重新生成参考图后导出。`,
+    planFailed: "章节规划不完整，请重试。",
+    tokenLimit: "模型输出达到上限，请缩小单次生成范围后重试。",
+  },
+  "zh-TW": {
+    validationFail: "輸入不符合要求，請檢查章節數、篇幅或模型選項。",
+    chapterIncomplete: (n) => `第 ${n} 章未完成；已完成章節保留，可繼續生成。`,
+    portraitReadFail: (name) => `角色「${name}」的圖片無法讀取，請重試或重新生成參考圖後匯出。`,
+    planFailed: "章節規劃不完整，請重試。",
+    tokenLimit: "模型輸出達到上限，請縮小單次生成範圍後重試。",
+  },
+  en: {
+    validationFail: "Check the chapter count, target length, or model selection.",
+    chapterIncomplete: (n) => `Chapter ${n} is incomplete. Completed chapters are saved; you can continue.`,
+    portraitReadFail: (name) => `Could not read the portrait for ${name}. Retry or generate it again before exporting.`,
+    planFailed: "The chapter plan is incomplete. Please try again.",
+    tokenLimit: "The model reached its output limit. Reduce the request size and try again.",
+  },
+  ja: {
+    validationFail: "章数、目標文字数、モデル選択を確認してください。",
+    chapterIncomplete: (n) => `第${n}章は未完成です。完成した章は保存されており、続行できます。`,
+    portraitReadFail: (name) => `${name}の画像を読み込めません。再試行するか、参考画像を再生成してから出力してください。`,
+    planFailed: "章構成が不完全です。再試行してください。",
+    tokenLimit: "モデルの出力上限に達しました。生成範囲を小さくして再試行してください。",
+  },
+  ko: {
+    validationFail: "장 수, 목표 글자 수 또는 모델 선택을 확인하세요.",
+    chapterIncomplete: (n) => `${n}장이 미완성입니다. 완성된 장은 저장되어 있으며 계속할 수 있습니다.`,
+    portraitReadFail: (name) => `${name}의 이미지를 읽을 수 없습니다. 다시 시도하거나 참고 이미지를 재생성한 후 내보내세요.`,
+    planFailed: "장 구성이 불완전합니다. 다시 시도하세요.",
+    tokenLimit: "모델의 출력 한도에 도달했습니다. 생성 범위를 줄여 다시 시도하세요.",
+  },
+};
+for (const [language, strings] of Object.entries(errorStrings)) {
+  Object.assign(window.I18N[language], strings);
+}
 for (const [language, values] of Object.entries(modelLabels)) {
   Object.assign(window.I18N[language], {
     textModel: values[0], chapterCountShort: values[1], chapterLengthShort: values[2],

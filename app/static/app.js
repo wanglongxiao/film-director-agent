@@ -166,7 +166,7 @@ function handleEvent(ev, els) {
   } else if (ev.type === "error") {
     els.msg.classList.remove("streaming");
     els.msg.querySelector(".reply-text").textContent =
-      "\u26a0 " + (ev.message || t("genericFail"));
+      "\u26a0 " + (ev.localized ? ev.message : localizedError(ev.message));
     els.thought.remove();
   }
 }
@@ -239,7 +239,7 @@ async function sendMessage() {
     if (err.name === "AbortError") {
       rollback(els.msg); // Stop was pressed
     } else {
-      handleEvent({ type: "error", message: err instanceof TypeError ? t("networkFail") : err.message }, els);
+      handleEvent({ type: "error", localized: true, message: err instanceof TypeError ? t("networkFail") : err.message }, els);
     }
   } finally {
     if (app.stopRequest) await app.stopRequest;
@@ -370,7 +370,7 @@ async function selectTextModel() {
   }
 }
 
-async function responseError(res) {
+function localizedError(message, status) {
   const messages = {
     "session not found": "taskMissing",
     "missing_prerequisites": "needPrereq",
@@ -383,10 +383,21 @@ async function responseError(res) {
     "Word 导出需要 Node.js，请安装 Node.js 并运行 npm ci。": "nodeRequired",
     "Word 导出失败，请确认已运行 npm ci。": "exportSetupFail",
   };
+  if (messages[message]) return t(messages[message]);
+  const chapter = /^第 (\d+) 章未达到目标篇幅/.exec(message || "");
+  if (chapter) return t("chapterIncomplete", chapter[1]);
+  const portrait = /^角色「(.+?)」的图片无法读取/.exec(message || "");
+  if (portrait) return t("portraitReadFail", portrait[1]);
+  if (/^章节规划/.test(message || "")) return t("planFailed");
+  if (/^模型输出达到/.test(message || "")) return t("tokenLimit");
+  if (status === 422) return t("validationFail");
+  return status ? t("requestFail", status) : t("genericFail");
+}
+
+async function responseError(res) {
   try {
     const body = await res.json();
-    if (messages[body.detail]) return t(messages[body.detail]);
-    return t("requestFail", res.status);
+    return localizedError(body.detail, res.status);
   } catch (_) { return t("requestFail", res.status); }
 }
 
@@ -458,7 +469,7 @@ async function generateNovel() {
         completedStream = true;
         status = t("novelStopped");
       }
-      if (ev.type === "error") throw new Error(ev.message);
+      if (ev.type === "error") throw new Error(localizedError(ev.message));
     };
     for (;;) {
       const { done, value } = await reader.read();
@@ -566,7 +577,7 @@ async function generateReferences() {
     const data = await res.json();
     renderReferences(data.images || []);
   } catch (err) {
-    showRefEmpty(t("failPrefix") + err.message);
+    showRefEmpty(t("failPrefix") + (err instanceof TypeError ? t("networkFail") : err.message));
   } finally {
     app.refBusy = false;
     updateNovelControls();
