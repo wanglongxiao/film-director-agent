@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from typing import Iterator, Optional
 import time
-import httpx
 
 from openai import OpenAI
 
@@ -31,7 +30,7 @@ def get_client(deadline: float | None = None) -> OpenAI:
         if remaining <= 5:
             raise TimeoutError("Chapter request time limit reached.")
         return _client.with_options(
-            timeout=httpx.Timeout(min(60, remaining - 5), connect=min(10, remaining - 5)),
+            timeout=min(60, remaining - 5),
             max_retries=0,
         )
     return _client
