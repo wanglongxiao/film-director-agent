@@ -5,6 +5,16 @@
  */
 "use strict";
 
+// Match the visible viewport when a mobile keyboard or browser toolbar resizes it.
+function updateViewportHeight() {
+  document.documentElement.style.setProperty(
+    "--app-height", `${window.visualViewport?.height || window.innerHeight}px`
+  );
+}
+updateViewportHeight();
+window.visualViewport?.addEventListener("resize", updateViewportHeight);
+window.addEventListener("resize", updateViewportHeight);
+
 const ui = {
   messages: document.getElementById("messages"),
   input: document.getElementById("input"),

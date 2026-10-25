@@ -430,7 +430,29 @@ button.ghost:hover { background: var(--panel-2); }
 
 /* Phones and touch tablets use the entire width for writing in both orientations. */
 @media (max-width: 950px), (pointer: coarse) {
+  html { height: 100%; overflow: hidden; }
+  body {
+    height: var(--app-height, 100dvh);
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .topbar { flex-shrink: 0; position: static; }
   .side-panel { display: none; }
-  .layout { grid-template-columns: minmax(0, 1fr); }
-  .chat-panel { border-right: 0; }
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+    flex: 1;
+    height: auto;
+    min-height: 0;
+  }
+  .chat-panel { border-right: 0; min-height: 0; overflow: hidden; }
+  .manuscript-tools { max-height: 45%; overflow-y: auto; }
+  .messages, .manuscript { flex: 1; min-height: 0; max-height: none; }
+  .composer {
+    flex-shrink: 0;
+    background: var(--bg);
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+  .composer input[type="text"] { font-size: 16px; }
 }

@@ -121,7 +121,7 @@ window.createSpeechInput = function ({ button, input, status, getSession, onBusy
       // Preserve any text the user typed while waiting; do not send automatically.
       input.value = [input.value.trim(), result.text].filter(Boolean).join(" ");
       input.dispatchEvent(new Event("input", { bubbles: true }));
-      status.textContent = t("speechReady"); input.focus();
+      status.textContent = ""; input.focus();
     } catch (error) {
       if (!discarded) status.textContent = t(error.name === "AbortError" ? "speech_timeout" : "speech_failed");
     } finally {

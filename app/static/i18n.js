@@ -139,7 +139,7 @@ const manuscriptStrings = {
   "zh-CN": {
     discussion: "创作讨论", manuscript: "小说正文", chapterCount: "章节数", chapterLength: "每章目标字数",
     generateNovel: "生成完整正文", resumeNovel: "继续生成正文", exportWord: "导出 Word",
-    novelHint: "先完成角色侧写和大纲，再设置章数和篇幅，逐章生成并保存。刷新会新建任务，请先导出。",
+    novelHint: "先设置章数和篇幅，完成角色侧写和大纲，再生成正文并保存。",
     novelEmpty: "章节目录和完整正文将显示在这里。",
     novelPlanning: "正在规划完整章节和结局…",
     novelWriting: (n) => `正在写作第 ${n} 章…`,
@@ -151,7 +151,7 @@ const manuscriptStrings = {
   "zh-TW": {
     discussion: "創作討論", manuscript: "小說正文", chapterCount: "章節數", chapterLength: "每章目標字數",
     generateNovel: "生成完整正文", resumeNovel: "繼續生成正文", exportWord: "匯出 Word",
-    novelHint: "先完成角色側寫與大綱，再設定章數和篇幅，逐章生成並保存。重新整理會新建任務，請先匯出。",
+    novelHint: "先設定章數和篇幅，完成角色側寫與大綱，再生成正文並保存。",
     novelEmpty: "章節目錄與完整正文將顯示在這裡。",
     novelPlanning: "正在規劃完整章節與結局…", novelWriting: (n) => `正在寫作第 ${n} 章…`,
     novelProgress: (v) => `已完成 ${v.done}/${v.total} 章 · ${v.length.toLocaleString()} 字`,
@@ -162,7 +162,7 @@ const manuscriptStrings = {
   en: {
     discussion: "Discussion", manuscript: "Manuscript", chapterCount: "Chapters", chapterLength: "Target words/chapter",
     generateNovel: "Generate full manuscript", resumeNovel: "Continue manuscript", exportWord: "Export Word",
-    novelHint: "Complete characters and outline, then set chapters and length. Each chapter is saved. Export before refreshing to a new task.",
+    novelHint: "Set chapters and length first, complete characters and outline, then generate and save the manuscript.",
     novelEmpty: "Chapter plan and full prose will appear here.",
     novelPlanning: "Planning all chapters and the ending…", novelWriting: (n) => `Writing chapter ${n}…`,
     novelProgress: (v) => `${v.done}/${v.total} chapters complete · ${v.length.toLocaleString()} words`,
@@ -173,7 +173,7 @@ const manuscriptStrings = {
   ja: {
     discussion: "制作相談", manuscript: "小説本文", chapterCount: "章数", chapterLength: "各章の目標文字数",
     generateNovel: "全文を生成", resumeNovel: "生成を続ける", exportWord: "Word に出力",
-    novelHint: "人物設定とあらすじを完成させ、章数と文字数を設定してください。章ごとに保存します。更新前に出力してください。",
+    novelHint: "先に章数と文字数を設定し、人物設定とあらすじを完成させてから本文を生成して保存してください。",
     novelEmpty: "章一覧と本文がここに表示されます。",
     novelPlanning: "章構成と結末を計画中…", novelWriting: (n) => `第${n}章を執筆中…`,
     novelProgress: (v) => `${v.done}/${v.total}章完成 · ${v.length.toLocaleString()}字`,
@@ -184,7 +184,7 @@ const manuscriptStrings = {
   ko: {
     discussion: "창작 대화", manuscript: "소설 본문", chapterCount: "장 수", chapterLength: "장당 목표 글자 수",
     generateNovel: "전체 본문 생성", resumeNovel: "본문 생성 계속", exportWord: "Word 내보내기",
-    novelHint: "인물 설정과 줄거리를 완성한 후 장 수와 분량을 설정하세요. 장마다 저장됩니다. 새로고침 전에 내보내세요.",
+    novelHint: "먼저 장 수와 분량을 설정하고 인물 설정과 줄거리를 완성한 후 본문을 생성하고 저장하세요.",
     novelEmpty: "장 목록과 전체 본문이 여기에 표시됩니다.",
     novelPlanning: "장 구성과 결말 계획 중…", novelWriting: (n) => `${n}장 집필 중…`,
     novelProgress: (v) => `${v.done}/${v.total}장 완료 · ${v.length.toLocaleString()}자`,
