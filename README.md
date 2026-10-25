@@ -22,7 +22,8 @@ The video shows an earlier version; the current app also supports full manuscrip
 - Export Word with the title, chapter index, full prose, and an appendix with background, character profiles, and each character's portrait.
 - Generate 4:3 character and scene reference images, with up to 10 concurrent requests and retries for transient failures.
 - Use Simplified Chinese, Traditional Chinese, English, Japanese, or Korean.
-- Record speech in the input bar and convert it to editable text with Seed-Speech. Recording requires microphone permission and HTTPS (localhost also works), and stops after 120 seconds. Recognition results are not sent automatically.
+- Record speech in the input bar and convert it to editable text with Seed-Speech. Recording requires microphone permission and HTTPS (localhost also works), and stops after 120 seconds. Text is inserted without a success notice and is not sent automatically.
+- On mobile, the input bar stays at the bottom of the visible screen while messages scroll inside the page. Portrait and landscape modes hide the reference-image panel.
 - Keep browser tasks separate, with completed work archived in local SQLite.
 
 ## Run locally
@@ -62,7 +63,7 @@ Keys and endpoint IDs stay on the server. `.env.example` leaves these fields emp
 | `SPEECH_ASR_URL` | Separate Seed-Speech API domain |
 | `SPEECH_RESOURCE_ID` | `volc.seedasr.auc_turbo` |
 
-The main agent handles discussion and story setup. The selected writer handles chapter plans, prose, summaries, and storyboards. `/api/models` supplies the web model list and configured output budgets. Actual output limits and available content depend on the model provider.
+The main agent handles discussion and story setup. The selected writer handles chapter plans, prose, summaries, and storyboards. `SCRIPT_LLM_TEMPERATURE` defaults to `0.9` for discussion and writing; continuity summaries use `0.2`. `/api/models` supplies model names, output budgets, generation limits and defaults, and speech availability, without private endpoints or keys. Actual output limits and available content depend on the model provider.
 
 ## BytePlus veFaaS
 
@@ -70,12 +71,12 @@ Use `run_cloud.sh` as the function command (`bash run_cloud.sh`), with Python 3.
 
 Set both `MinInstance` and `MaxInstance` to `1`. Bind an API gateway route with path prefix `/` and all app HTTP methods. For long generation requests, use a function timeout of 900 seconds and an API gateway route timeout of 900,000 milliseconds.
 
-Cloud pages, static resources, and APIs require login; local mode has no password. `/api/models` returns model names and token budgets only. The cloud SQLite default is `/tmp/movieagent/script.db`, which is lost when an instance is replaced. Export work before replacing the instance, or configure a writable persistent volume with `SCRIPT_DB_PATH`.
+Cloud pages, static resources, and APIs require login; local mode has no password. The cloud SQLite default is `/tmp/movieagent/script.db`, which is lost when an instance is replaced. Export work before replacing the instance, or configure a writable persistent volume with `SCRIPT_DB_PATH`.
 
 ## Writing and export
 
-1. Complete character profiles and the outline in the discussion panel.
-2. Set 10–120 chapters (default 20) and 2,000–10,000 words per chapter in English, or characters in the other languages (default 4,000). Reference images allow 1–10 per request (default 4). These limits and defaults are defined in `config.GENERATION_SETTINGS` and loaded by the web UI.
+1. First set 10–120 chapters (default 20) and 2,000–10,000 words per chapter in English, or characters in the other languages (default 4,000). These limits and defaults are defined in `config.GENERATION_SETTINGS` and loaded by the web UI.
+2. Complete character profiles and the outline in the discussion panel. Reference images allow 1–10 per request (default 4) on desktop.
 3. Generate the full manuscript. Each chapter uses prior chapter facts and the previous chapter's ending for continuity.
 4. Stop when needed, then continue with the same chapter plan and length. A chapter is saved only after reaching at least 80% of its target length without truncation.
 5. Export Word before refreshing or closing the browser. An incomplete book is labeled as an incomplete draft.
