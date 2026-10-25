@@ -75,6 +75,7 @@ button.ghost:hover { background: var(--panel-2); }
   display: grid;
   grid-template-columns: minmax(0, 5fr) minmax(0, 1fr);
   height: calc(100vh - 52px);
+  height: calc(100dvh - 52px);
 }
 .chat-panel {
   display: flex;
@@ -87,6 +88,7 @@ button.ghost:hover { background: var(--panel-2); }
 /* ---------- Messages ---------- */
 .messages {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 20px 16px;
   display: flex;
@@ -333,18 +335,19 @@ button.ghost:hover { background: var(--panel-2); }
   border-bottom: 1px solid var(--border);
   background: var(--panel);
   display: flex;
+  flex-wrap: wrap;
+  flex-shrink: 0;
   align-items: center;
   gap: 10px;
   min-width: 0;
 }
-.tools-controls { display: flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0; overflow-x: auto; }
-.tools-controls::-webkit-scrollbar { height: 3px; }
-.view-tabs, .novel-form { display: flex; gap: 5px; flex-wrap: nowrap; align-items: center; flex-shrink: 0; }
+.tools-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: 1 1 600px; min-width: 0; }
+.view-tabs, .novel-form { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; min-width: 0; }
 .manuscript-tools button { padding: 5px 8px; font-size: 12px; white-space: nowrap; min-height: 29px; }
 .novel-form label { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 4px; white-space: nowrap; }
-.novel-form input { width: 49px; padding: 4px; font-size: 12px; height: 29px; }
-#chapter-length { width: 63px; }
-#novel-status { flex: 1; min-width: 120px; font-size: 11px; line-height: 20px; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.novel-form input { width: 62px; padding: 4px; font-size: 12px; height: 29px; }
+#chapter-length { width: 76px; }
+#novel-status { flex: 1 1 240px; min-width: 0; font-size: 11px; line-height: 20px; margin: 0; overflow-wrap: anywhere; }
 .model-label { color: var(--muted); font-size: 13px; }
 #text-model { max-width: 225px; }
 .side-scroll { padding: 12px 10px; }
@@ -371,11 +374,21 @@ button.ghost:hover { background: var(--panel-2); }
 .chapter.writing .chapter-content::after { content: "▍"; color: var(--accent-2); animation: blink 1s steps(1) infinite; }
 
 @media (max-width: 650px) {
-  .topbar { padding: 0 8px; }
-  .brand { font-size: 14px; }
+  html, body { height: auto; min-height: 100%; overflow: visible; }
+  .topbar { padding: 8px; height: auto; min-height: 52px; flex-wrap: wrap; gap: 8px; position: static; }
+  .brand { font-size: 14px; flex-basis: 100%; }
   .topbar-actions { gap: 6px; }
   .lang-label { display: none; }
-  .layout { height: calc(100dvh - 52px); }
+  .layout { height: auto; grid-template-columns: minmax(0, 1fr); }
+  .chat-panel { min-height: calc(100dvh - 110px); border-right: 0; }
+  .messages, .manuscript { flex: 1 0 auto; max-height: 60dvh; min-height: 180px; }
+  .side-panel { border-top: 1px solid var(--border); }
+  .side-scroll { max-height: 60dvh; }
+  .ref-output { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ref-output > .empty { grid-column: 1 / -1; }
+  .side-actions .episode-form label { width: auto; flex-wrap: nowrap; }
+  .side-actions .episode-form input[type="number"] { width: 70px; }
+  .composer { flex-shrink: 0; }
   .side-scroll { padding: 8px 4px; }
   .ref-card { padding: 4px; }
   .episode-form label { flex-wrap: wrap; width: 100%; overflow-wrap: anywhere; }
@@ -383,7 +396,7 @@ button.ghost:hover { background: var(--panel-2); }
   .manuscript-tools { padding: 6px 8px; }
   .model-label { display: none; }
   #text-model { width: 120px; font-size: 11px; padding: 5px 3px; }
-  .brand { max-width: 95px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .brand { max-width: none; }
   .manuscript { padding: 12px; }
   .bubble { max-width: calc(100% - 40px); }
   .composer input[type="text"] { min-width: 0; }
@@ -392,7 +405,19 @@ button.ghost:hover { background: var(--panel-2); }
 
 @media (max-width: 450px) {
   .topbar-actions { gap: 4px; flex-shrink: 0; }
-  .brand { min-width: 0; max-width: 70px; }
+  .brand { min-width: 0; }
   #lang { width: 68px; padding: 5px 2px; font-size: 11px; }
   #new-task { font-size: 12px; padding: 6px; }
+}
+
+/* Short landscape screens need vertical page scrolling to reach every control. */
+@media (min-width: 651px) and (max-height: 500px) {
+  html, body { height: auto; min-height: 100%; overflow: visible; }
+  .topbar { height: auto; min-height: 52px; padding: 8px 12px; flex-wrap: wrap; gap: 8px; position: static; }
+  .topbar-actions { flex-wrap: wrap; }
+  .layout { height: auto; min-height: calc(100dvh - 52px); grid-template-columns: minmax(0, 3fr) minmax(180px, 1fr); }
+  .chat-panel { min-height: 380px; }
+  .messages, .manuscript { min-height: 160px; max-height: 60dvh; flex: 1 0 auto; }
+  .side-scroll { max-height: 320px; }
+  .composer { flex-shrink: 0; }
 }

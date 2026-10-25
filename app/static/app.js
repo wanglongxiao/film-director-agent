@@ -50,6 +50,17 @@ async function loadModels() {
   const res = await fetch("/api/models");
   if (!res.ok) throw new Error(t("modelLoadFail"));
   const data = await res.json();
+  for (const [key, input] of [
+    ["chapters_count", ui.chapterCount],
+    ["chapter_length", ui.chapterLength],
+    ["images_count", ui.refTotal],
+  ]) {
+    const settings = data.generation[key];
+    input.min = settings.min;
+    input.max = settings.max;
+    input.defaultValue = settings.default;
+    input.value = settings.default;
+  }
   app.modelOptions = Object.fromEntries(data.models.map(model => [model.id, model]));
   ui.textModel.replaceChildren(...data.models.map(model => {
     const option = document.createElement("option");
@@ -555,7 +566,8 @@ async function generateReferences() {
   // Prerequisite (characters + outline) is validated server-side: the backend
   // will also try to recover them from chat history before giving up. So we
   // send the request and handle a 400 (missing_prerequisites) response here.
-  const total = Math.min(8, Math.max(1, parseInt(ui.refTotal.value, 10) || 4));
+  if (!ui.refTotal.reportValidity()) return;
+  const total = Number(ui.refTotal.value);
 
   app.refBusy = true;
   updateNovelControls();

@@ -18,7 +18,7 @@ The video shows an earlier version; the current app also supports full manuscrip
 
 - Discuss the background, characters, outline, film format, style, and age rating.
 - Choose `deepseek-1017` (default) or `seed-sc-0215` for writing, independently of the main agent.
-- Plan 3–40 chapters and stream each chapter. Completed chapters are saved; stop and continue from the next unfinished chapter.
+- Plan 10–120 chapters and stream each chapter. Completed chapters are saved; stop and continue from the next unfinished chapter.
 - Export Word with the title, chapter index, full prose, and an appendix with background, character profiles, and each character's portrait.
 - Generate 4:3 character and scene reference images, with up to 10 concurrent requests and retries for transient failures.
 - Use Simplified Chinese, Traditional Chinese, English, Japanese, or Korean.
@@ -69,7 +69,7 @@ Cloud pages, static resources, and APIs require login; local mode has no passwor
 ## Writing and export
 
 1. Complete character profiles and the outline in the discussion panel.
-2. Set the chapter count and target length: default 12 chapters × 2,500 words in English, or characters in the other languages.
+2. Set 10–120 chapters (default 20) and 2,000–10,000 words per chapter in English, or characters in the other languages (default 4,000). Reference images allow 1–10 per request (default 4). These limits and defaults are defined in `config.GENERATION_SETTINGS` and loaded by the web UI.
 3. Generate the full manuscript. Each chapter uses prior chapter facts and the previous chapter's ending for continuity.
 4. Stop when needed, then continue with the same chapter plan and length. A chapter is saved only after reaching at least 80% of its target length without truncation.
 5. Export Word before refreshing or closing the browser. An incomplete book is labeled as an incomplete draft.

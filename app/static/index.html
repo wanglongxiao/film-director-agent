@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title data-i18n="title">Movie Script Agent</title>
-  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/style.css?v=20261025-3" />
 </head>
 <body>
   <header class="topbar">
@@ -37,14 +37,14 @@
         </div>
         <div class="novel-form">
           <label><span data-i18n="chapterCountShort">章数</span>
-            <input id="chapter-count" type="number" min="3" max="40" value="12" data-i18n-attr="aria-label:chapterCount" /></label>
+            <input id="chapter-count" type="number" required data-i18n-attr="aria-label:chapterCount" /></label>
           <label><span data-i18n="chapterLengthShort">字/章</span>
-            <input id="chapter-length" type="number" min="800" max="6000" step="100" value="2500" data-i18n-attr="aria-label:chapterLength" /></label>
+            <input id="chapter-length" type="number" required step="100" data-i18n-attr="aria-label:chapterLength" /></label>
           <button id="novel-gen" class="primary" disabled data-i18n="generateNovel">生成完整正文</button>
           <button id="word-export" class="secondary" disabled data-i18n="exportWord">导出 Word</button>
         </div>
         </div>
-        <div id="novel-status" class="muted" role="status" aria-live="polite" data-i18n="novelHint">先完成角色侧写和大纲；默认 12 章，约 3 万字，逐章生成并保存。</div>
+        <div id="novel-status" class="muted" role="status" aria-live="polite" data-i18n="novelHint">先完成角色侧写和大纲，逐章生成并保存。</div>
       </div>
       <div id="messages" class="messages"></div>
       <div id="manuscript" class="manuscript hidden">
@@ -68,14 +68,14 @@
       </div>
       <div class="side-actions">
         <div class="episode-form">
-          <label><span data-i18n="totalImages">图片数</span> <input id="ref-total" type="number" value="4" min="1" max="8" data-i18n-attr="title:refTotalHint" title="1-8 (characters + scenes)" /></label>
+          <label><span data-i18n="totalImages">图片数</span> <input id="ref-total" type="number" required data-i18n-attr="title:refTotalHint" /></label>
           <button id="ref-gen" class="secondary" data-i18n="generateRefs">生成</button>
         </div>
       </div>
     </aside>
   </main>
 
-  <script src="/i18n.js?v=20261025-2"></script>
-  <script src="/app.js?v=20261025-2"></script>
+  <script src="/i18n.js?v=20261025-3"></script>
+  <script src="/app.js?v=20261025-3"></script>
 </body>
 </html>

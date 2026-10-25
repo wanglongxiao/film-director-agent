@@ -70,7 +70,7 @@ def health() -> dict:
 
 @app.get("/api/models")
 def models() -> dict:
-    return {"default": config.DEFAULT_TEXT_MODEL, "models": [
+    return {"default": config.DEFAULT_TEXT_MODEL, "generation": config.GENERATION_SETTINGS, "models": [
         {"id": key, "max_tokens": value["max_tokens"]} for key, value in config.CHAT_MODELS.items()
     ]}
 
@@ -262,7 +262,7 @@ def generate_references(sid: str, body: ReferenceRequest) -> ReferenceResponse:
             status_code=400,
             detail="missing_prerequisites",
         )
-    total = max(1, min(8, body.total))
+    total = body.total
 
     # Prefer characters first (up to available), remainder goes to scenes.
     char_slots = min(len(state.characters), total)
@@ -285,7 +285,7 @@ def generate_references(sid: str, body: ReferenceRequest) -> ReferenceResponse:
     if not beats:
         beats = [outline]
     step = max(1, len(beats) // max(1, scene_slots))
-    picks = beats[::step][:scene_slots] if scene_slots else []
+    picks = [beats[(i * step) % len(beats)] for i in range(scene_slots)]
     for i, beat in enumerate(picks, 1):
         prompt = f"Key scene reference for the script. Scene {i}: {beat}. Cinematic, wide shot."
         tasks.append(ReferenceImage(kind="scene", title=f"关键分镜 {i}", prompt=prompt))

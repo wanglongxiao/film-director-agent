@@ -43,8 +43,15 @@ class Chapter(BaseModel):
 
 class Novel(BaseModel):
     title: str = Field(min_length=1)
-    chapters_count: int = Field(default=12, ge=3, le=40)
-    chapter_length: int = Field(default=2500, ge=800, le=6000)
+    # Keep existing archived manuscripts readable; new requests use current limits.
+    chapters_count: int = Field(
+        default=config.GENERATION_SETTINGS["chapters_count"]["default"],
+        ge=3, le=config.GENERATION_SETTINGS["chapters_count"]["max"],
+    )
+    chapter_length: int = Field(
+        default=config.GENERATION_SETTINGS["chapter_length"]["default"],
+        ge=800, le=config.GENERATION_SETTINGS["chapter_length"]["max"],
+    )
     chapters: list[Chapter] = Field(default_factory=list)
 
 
@@ -97,8 +104,16 @@ class EpisodeRequest(BaseModel):
 
 
 class NovelRequest(BaseModel):
-    chapters_count: int = Field(default=12, ge=3, le=40)
-    chapter_length: int = Field(default=2500, ge=800, le=6000)
+    chapters_count: int = Field(
+        default=config.GENERATION_SETTINGS["chapters_count"]["default"],
+        ge=config.GENERATION_SETTINGS["chapters_count"]["min"],
+        le=config.GENERATION_SETTINGS["chapters_count"]["max"],
+    )
+    chapter_length: int = Field(
+        default=config.GENERATION_SETTINGS["chapter_length"]["default"],
+        ge=config.GENERATION_SETTINGS["chapter_length"]["min"],
+        le=config.GENERATION_SETTINGS["chapter_length"]["max"],
+    )
 
 
 class EpisodeResponse(BaseModel):
@@ -115,7 +130,11 @@ class ReferenceImage(BaseModel):
 
 
 class ReferenceRequest(BaseModel):
-    total: int = 4   # 1-8
+    total: int = Field(
+        default=config.GENERATION_SETTINGS["images_count"]["default"],
+        ge=config.GENERATION_SETTINGS["images_count"]["min"],
+        le=config.GENERATION_SETTINGS["images_count"]["max"],
+    )
 
 
 class ReferenceResponse(BaseModel):

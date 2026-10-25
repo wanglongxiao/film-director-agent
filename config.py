@@ -47,6 +47,13 @@ CHAT_MODELS = {
 }
 DEFAULT_TEXT_MODEL = "deepseek-1017"
 
+# Public generation controls shared by API validation and the web UI.
+GENERATION_SETTINGS = {
+    "chapters_count": {"min": 10, "max": 120, "default": 20},
+    "chapter_length": {"min": 2000, "max": 10000, "default": 4000},
+    "images_count": {"min": 1, "max": 10, "default": 4},
+}
+
 # Compatibility aliases for existing tools.
 LLM_MODEL_CHAT = MAIN_AGENT_MODEL["endpoint"]
 LLM_MAX_TOKENS = MAIN_AGENT_MODEL["max_tokens"]
