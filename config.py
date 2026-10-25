@@ -13,6 +13,9 @@ load_dotenv()
 WEBUI_CLOUD_MODE = os.getenv("WEBUI_CLOUD_MODE", "false").lower() == "true"
 WEBUI_ACCESS_PASSWORD = os.getenv("WEBUI_ACCESS_PASSWORD", "")
 WEBUI_SESSION_SECRET = os.getenv("WEBUI_SESSION_SECRET", "")
+TOS_REGION = os.getenv("TOS_REGION", "ap-southeast-1")
+TOS_BUCKET = os.getenv("TOS_BUCKET", "")
+TOS_ENDPOINT = os.getenv("TOS_ENDPOINT", "https://tos-ap-southeast-1.bytepluses.com").strip("`")
 if WEBUI_CLOUD_MODE and not (WEBUI_ACCESS_PASSWORD and WEBUI_SESSION_SECRET):
     raise RuntimeError("云端必须配置准入密码和会话签名密钥。")
 

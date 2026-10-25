@@ -21,7 +21,7 @@ def story_context(state: SessionState) -> dict:
     return state.model_dump(exclude={"novel", "episodes", "stage"})
 
 
-def plan_novel(state: SessionState, request: NovelRequest) -> Novel:
+def plan_novel(state: SessionState, request: NovelRequest, deadline=None) -> Novel:
     messages = [
         {"role": "system", "content": (
             "You are a novelist and screenwriter planning a COMPLETE novella. "
@@ -45,7 +45,7 @@ def plan_novel(state: SessionState, request: NovelRequest) -> Novel:
             "length_unit": "words" if state.language == "en" else "characters",
         }, ensure_ascii=False)},
     ]
-    parsed = _extract_json(llm.chat(messages, model_key=state.text_model))
+    parsed = _extract_json(llm.chat(messages, model_key=state.text_model, deadline=deadline))
     if not parsed:
         raise ValueError("章节规划未返回有效 JSON，请重试。")
     chapters = [Chapter.model_validate(c) for c in parsed.get("chapters", [])]
@@ -65,7 +65,7 @@ def plan_novel(state: SessionState, request: NovelRequest) -> Novel:
     )
 
 
-def stream_chapter(state: SessionState, chapter: Chapter, should_stop: Callable[[], bool]):
+def stream_chapter(state: SessionState, chapter: Chapter, should_stop: Callable[[], bool], deadline=None):
     """Emit prose deltas, then a validated completed chapter; never save fragments."""
     novel = state.novel
     if novel is None:
@@ -117,7 +117,7 @@ def stream_chapter(state: SessionState, chapter: Chapter, should_stop: Callable[
         truncated = False
         try:
             for delta in llm.chat_stream(
-                messages, model_key=state.text_model
+                messages, model_key=state.text_model, deadline=deadline
             ):
                 if should_stop():
                     return
@@ -149,7 +149,7 @@ def stream_chapter(state: SessionState, chapter: Chapter, should_stop: Callable[
                         "threads and the ending situation. No inventions. Use the text's language."
                     )},
                     {"role": "user", "content": full_text},
-                ], temperature=0.2, max_tokens=2048, model_key=state.text_model)
+                ], temperature=0.2, max_tokens=2048, model_key=state.text_model, deadline=deadline)
             except Exception:
                 # Exact final prose is also supplied to the next chapter.
                 completed.summary = full_text[-3000:]

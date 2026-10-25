@@ -406,6 +406,29 @@ for (const [language, strings] of Object.entries(speechStrings)) {
   Object.assign(window.I18N[language], strings);
 }
 
+const historyStrings = {
+  "zh-CN": ["历史剧本", "关闭", "暂无历史剧本", "删除任务", "删除此任务及全部章节、讨论记录和图片？",
+    "等待当前章节请求结束，随后自动继续…", "连接中断，正在恢复已保存进度…",
+    "未生成", "生成中", "待继续", "已完成"],
+  "zh-TW": ["歷史劇本", "關閉", "暫無歷史劇本", "刪除任務", "刪除此任務及全部章節、討論記錄和圖片？",
+    "等待目前章節請求結束，隨後自動繼續…", "連線中斷，正在恢復已儲存進度…",
+    "未生成", "生成中", "待繼續", "已完成"],
+  en: ["Script history", "Close", "No scripts yet", "Delete task", "Delete this task and all chapters, discussion and images?",
+    "Waiting for the current chapter, then continuing automatically…", "Connection lost. Recovering saved progress…",
+    "Idle", "Generating", "To continue", "Complete"],
+  ja: ["脚本履歴", "閉じる", "履歴はありません", "タスクを削除", "このタスクの章、会話と画像をすべて削除しますか？",
+    "現在の章の処理を待ってから自動で続行します…", "接続が切れました。保存済みの進捗を復元中…",
+    "未生成", "生成中", "続行待ち", "完了"],
+  ko: ["대본 기록", "닫기", "기록이 없습니다", "작업 삭제", "이 작업의 모든 장, 대화와 이미지를 삭제할까요?",
+    "현재 장의 요청이 끝나면 자동으로 계속합니다…", "연결이 끊겼습니다. 저장된 진행 상황을 복원 중…",
+    "대기", "생성 중", "계속 대기", "완료"],
+};
+const historyKeys = ["history", "closeHistory", "historyEmpty", "deleteTask", "deleteConfirm",
+  "waitingChapter", "reconnecting", "taskStatus_idle", "taskStatus_running", "taskStatus_queued", "taskStatus_completed"];
+for (const [language, strings] of Object.entries(historyStrings)) {
+  Object.assign(window.I18N[language], Object.fromEntries(historyKeys.map((key, i) => [key, strings[i]])));
+}
+
 window.t = function t(key, arg) {
   const lang = window.__lang || "zh-CN";
   const dict = window.I18N[lang] || window.I18N["en"];

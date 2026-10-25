@@ -22,7 +22,7 @@ for env_file in root.glob(".env*"):
         value = value.strip().strip("\"'")
         if (
             separator and not name.startswith("#")
-            and re.search(r"(key|secret|password|token)", name, re.I)
+            and re.search(r"(key|secret|password|token|(?:^|_)(?:ak|sk)$)", name, re.I)
             and not name.endswith("MAX_TOKENS") and len(value) >= 8
         ):
             local_secrets.append(value.encode())

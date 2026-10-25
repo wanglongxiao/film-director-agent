@@ -1,8 +1,4 @@
-/* Movie Script Agent — frontend logic.
- * Each browser window owns exactly one Agent task. Closing or refreshing the
- * window deletes the task (server-side), while the generated content (outline,
- * characters, script, images) is persisted by the backend to SQLite.
- */
+/* Browser-scoped history with one automatically chained chapter per request. */
 "use strict";
 
 // Match the visible viewport when a mobile keyboard or browser toolbar resizes it.
@@ -36,6 +32,11 @@ const ui = {
   textModel: document.getElementById("text-model"),
   record: document.getElementById("record"),
   speechStatus: document.getElementById("speech-status"),
+  history: document.getElementById("history-list"),
+  historyPanel: document.getElementById("history-panel"),
+  historyOpen: document.getElementById("history-open"),
+  historyClose: document.getElementById("history-close"),
+  historyShade: document.getElementById("history-shade"),
 };
 
 const app = {
@@ -100,22 +101,62 @@ async function createSession() {
   if (!res.ok) throw new Error(t("sessionCreateFail"));
   const data = await res.json();
   app.sid = data.session_id;
+  localStorage.setItem("msa-active-task", app.sid);
+  ui.messages.replaceChildren();
+  showRefEmpty(t("refEmpty"));
   renderProject(data.state);
   appendSystem(t("newTaskReady"));
+  await loadHistory();
 }
 
-function closeTask() {
-  if (!app.sid) return;
-  fetch(`/api/sessions/${app.sid}/close`, { method: "POST", keepalive: true }).catch(() => {});
-  app.sid = null;
+async function loadHistory() {
+  const res = await fetch("/api/sessions");
+  if (!res.ok) throw new Error(await responseError(res));
+  const { tasks } = await res.json();
+  ui.history.innerHTML = tasks.length ? tasks.map(task => `
+    <div class="history-row ${task.session_id === app.sid ? "selected" : ""}">
+      <button class="history-select ghost" data-task="${esc(task.session_id)}">
+        <span class="history-title">${esc(task.title)}</span>
+        <span class="muted">${esc(new Date(task.updated_at * 1000).toLocaleString(app.language))}</span>
+        <span class="muted">${task.completed}/${task.total} · ${esc(t("taskStatus_" + task.status))}</span>
+      </button>
+      <button class="history-delete ghost" data-delete="${esc(task.session_id)}"
+        aria-label="${esc(t("deleteTask"))}" title="${esc(t("deleteTask"))}">×</button>
+    </div>`).join("") : `<div class="empty">${esc(t("historyEmpty"))}</div>`;
 }
 
-// Fires on tab/window close, refresh and navigation — deletes the task.
-window.addEventListener("pagehide", closeTask);
-// Safety net: drop the task if this window goes quiet for too long is handled
-// by the server-side sweep (heartbeat below keeps it alive while open).
+function historyDrawer(open) {
+  ui.historyPanel.classList.toggle("drawer-open", open);
+  ui.historyShade.classList.toggle("hidden", !open);
+  ui.historyOpen.setAttribute("aria-expanded", String(open));
+  if (open) ui.historyClose.focus();
+}
+
+async function restoreSession(sid) {
+  const res = await fetch(`/api/sessions/${sid}`);
+  if (!res.ok) throw new Error(await responseError(res));
+  const data = await res.json();
+  app.sid = sid;
+  localStorage.setItem("msa-active-task", sid);
+  app.language = data.state.language;
+  ui.lang.value = app.language;
+  applyI18n(app.language);
+  ui.messages.replaceChildren();
+  for (const message of data.history) appendMessage(message.role, message.content);
+  renderProject(data.state);
+  ui.chapterCount.value = data.state.writing.chapters_count;
+  ui.chapterLength.value = data.state.writing.chapter_length;
+  const images = await fetch(`/api/sessions/${sid}/images`);
+  const rows = images.ok ? (await images.json()).images : [];
+  if (rows.length) renderReferences(rows);
+  else showRefEmpty(t("refEmpty"));
+  await loadHistory();
+  historyDrawer(false);
+  if (data.auto_run) generateNovel(true);
+}
+
 setInterval(() => {
-  if (app.sid) fetch(`/api/sessions/${app.sid}/heartbeat`, { method: "POST" }).catch(() => {});
+  loadHistory().catch(() => {});
 }, 20000);
 
 /* ------------------------------------------------------------------ */
@@ -315,6 +356,10 @@ function renderProject(state) {
   app.state = state;
   app.textModel = state.text_model || "deepseek-1017";
   ui.textModel.value = app.textModel;
+  if (!state.novel) {
+    ui.chapterCount.value = state.writing.chapters_count;
+    ui.chapterLength.value = state.writing.chapter_length;
+  }
   renderManuscript();
   updateNovelControls();
 }
@@ -349,6 +394,9 @@ function updateNovelControls() {
   ui.send.disabled = app.modelBusy || app.speechBusy;
   ui.lang.disabled = app.generating || app.refBusy || app.modelBusy || app.speechBusy;
   ui.newTask.disabled = app.generating || app.refBusy || app.modelBusy || app.speechBusy;
+  for (const button of ui.history.querySelectorAll("button")) {
+    button.disabled = app.generating || app.refBusy || app.modelBusy || app.speechBusy || app.exportBusy;
+  }
   ui.novelGen.disabled = app.generating || app.refBusy || app.modelBusy || app.speechBusy
     || !app.state?.characters?.length || !app.state?.outline
     || (novel && completed === novel.chapters_count);
@@ -437,7 +485,7 @@ async function responseError(res) {
   } catch (_) { return t("requestFail", res.status); }
 }
 
-async function generateNovel() {
+async function generateNovel(resumeExisting = false) {
   if (!app.sid || app.generating || app.refBusy || app.modelBusy || app.speechBusy) return;
   if (!ui.chapterCount.checkValidity() || !ui.chapterLength.checkValidity()) {
     ui.chapterCount.reportValidity();
@@ -454,7 +502,29 @@ async function generateNovel() {
   showView(true);
   let completedStream = false;
   let status = "";
+  let more = true;
+  let failures = 0;
+  let started = resumeExisting;
   try {
+    while (more && !app.aborter.signal.aborted) {
+    more = false;
+    completedStream = false;
+    try {
+    const current = await fetch(`/api/sessions/${sid}`);
+    if (!current.ok) throw new Error(await responseError(current));
+    const snapshot = await current.json();
+    if (snapshot.busy) {
+      ui.novelStatus.textContent = t("waitingChapter");
+      await pause(3000, app.aborter.signal);
+      more = true;
+      continue;
+    }
+    if (started && !snapshot.auto_run) {
+      status = snapshot.status === "completed" ? t("novelFinished") : t("novelStopped");
+      renderProject(snapshot.state);
+      break;
+    }
+    renderProject(snapshot.state);
     const res = await fetch(`/api/sessions/${sid}/novel/generate`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -463,7 +533,9 @@ async function generateNovel() {
       }),
       signal: app.aborter.signal,
     });
+    if (res.status === 409 || res.status >= 500) throw new TypeError("retry");
     if (!res.ok || !res.body) throw new Error(await responseError(res));
+    started = true;
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -501,6 +573,11 @@ async function generateNovel() {
         completedStream = true;
         status = t("novelFinished");
       }
+      if (ev.type === "next") {
+        app.state = ev.state;
+        completedStream = true;
+        more = true;
+      }
       if (ev.type === "interrupted") {
         completedStream = true;
         status = t("novelStopped");
@@ -519,10 +596,18 @@ async function generateNovel() {
       if (done) break;
     }
     if (buffer.trim()) handle(JSON.parse(buffer));
-    if (!completedStream) throw new Error(t("novelFailed"));
+    if (!completedStream) throw new TypeError("incomplete stream");
+    failures = 0;
+    await loadHistory().catch(() => {});
+    } catch (err) {
+      if (err instanceof TypeError && ++failures <= 8 && !app.aborter.signal.aborted) {
+        ui.novelStatus.textContent = t("reconnecting");
+        await pause(3000, app.aborter.signal);
+        more = true; // The next iteration reloads durable progress before POST.
+      } else throw err;
+    }
+    }
   } catch (err) {
-    if (app.aborter) app.aborter.abort();
-    requestStop(sid);
     status = err.name === "AbortError" ? t("novelStopped") : `${t("novelFailed")} ${err.message}`;
   } finally {
     if (app.stopRequest) await app.stopRequest;
@@ -538,7 +623,17 @@ async function generateNovel() {
     renderManuscript();
     setButtons("send");
     ui.novelStatus.textContent = `${progressText()} · ${status}`;
+    loadHistory().catch(() => {});
   }
+}
+
+function pause(ms, signal) {
+  return new Promise((resolve, reject) => {
+    const abort = () => { clearTimeout(timer); reject(new DOMException("Stopped", "AbortError")); };
+    const timer = setTimeout(() => { signal.removeEventListener("abort", abort); resolve(); }, ms);
+    if (signal.aborted) abort();
+    else signal.addEventListener("abort", abort, { once: true });
+  });
 }
 
 async function exportWord() {
@@ -630,8 +725,27 @@ async function generateReferences() {
 ui.send.addEventListener("click", sendMessage);
 ui.stop.addEventListener("click", stopGeneration);
 ui.refGen.addEventListener("click", generateReferences);
-ui.newTask.addEventListener("click", () => window.location.reload());
-ui.novelGen.addEventListener("click", generateNovel);
+ui.newTask.addEventListener("click", () => createSession().catch(err => appendSystem(err.message)));
+ui.historyOpen.addEventListener("click", () => historyDrawer(true));
+ui.historyClose.addEventListener("click", () => historyDrawer(false));
+ui.historyShade.addEventListener("click", () => historyDrawer(false));
+document.addEventListener("keydown", e => { if (e.key === "Escape") historyDrawer(false); });
+ui.history.addEventListener("click", async e => {
+  if (app.generating || app.refBusy || app.modelBusy || app.speechBusy || app.exportBusy) return;
+  const selected = e.target.closest("[data-task]");
+  const removed = e.target.closest("[data-delete]");
+  try {
+    if (selected) await restoreSession(selected.dataset.task);
+    if (removed && confirm(t("deleteConfirm"))) {
+      const sid = removed.dataset.delete;
+      const res = await fetch(`/api/sessions/${sid}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(await responseError(res));
+      if (sid === app.sid) await createSession();
+      else await loadHistory();
+    }
+  } catch (err) { appendSystem(err.message); }
+});
+ui.novelGen.addEventListener("click", () => generateNovel());
 ui.wordExport.addEventListener("click", exportWord);
 ui.viewChat.addEventListener("click", () => showView(false));
 ui.viewNovel.addEventListener("click", () => showView(true));
@@ -668,7 +782,6 @@ ui.messages.addEventListener("click", (e) => {
       }
     }
     // Switching language resets the task so the agent replies in the new language.
-    if (app.sid) fetch(`/api/sessions/${app.sid}/close`, { method: "POST" }).catch(() => {});
     app.sid = null;
     ui.messages.innerHTML = "";
     ui.refOutput.innerHTML = `<div class="empty">${esc(t("refEmpty"))}</div>`;
@@ -677,7 +790,11 @@ ui.messages.addEventListener("click", (e) => {
   });
   try {
     await loadModels();
-    await createSession();
+    const active = localStorage.getItem("msa-active-task");
+    if (active) {
+      try { await restoreSession(active); }
+      catch (_) { await createSession(); }
+    } else await createSession();
   } catch (err) {
     appendSystem(t("connectFail") + err.message);
   }

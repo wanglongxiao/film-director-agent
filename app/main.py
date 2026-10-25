@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 from contextlib import asynccontextmanager
 from urllib.parse import quote
 
@@ -32,16 +33,16 @@ from .schemas import (
     WritingSettings,
 )
 from .store import SessionStore
-from .access import CloudAccess
+from .access import CloudAccess, BrowserTasks
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
 store = SessionStore()
-persist = persist_mod.Persist()
+persist = persist_mod.Persist(store)
 
 
 async def _sweep_loop() -> None:
-    """Periodically drop sessions whose browser window has disconnected."""
+    """Evict inactive cache entries; durable task documents remain available."""
     while True:
         await asyncio.sleep(60)
         store.sweep(max_age_seconds=600)
@@ -55,6 +56,7 @@ async def _lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Movie Script Agent", version="0.4.0", lifespan=_lifespan)
+app.add_middleware(BrowserTasks, store=store)
 app.add_middleware(CloudAccess)
 
 
@@ -108,9 +110,10 @@ def models() -> dict:
 
 
 @app.post("/api/sessions", response_model=SessionOut)
-def create_session(body: SessionCreate) -> SessionOut:
-    sid = store.create(body.language)
+def create_session(body: SessionCreate, request: Request) -> SessionOut:
+    sid = store.create(body.language, request.state.owner)
     store.set_model(sid, body.text_model)
+    store.flush(sid)
     item = store.get(sid)
     return SessionOut(session_id=sid, state=item["state"])
 
@@ -126,13 +129,35 @@ def select_model(sid: str, body: ModelRequest) -> SessionOut:
     return SessionOut(session_id=sid, state=state)
 
 
-@app.get("/api/sessions/{sid}", response_model=SessionOut)
-def get_session(sid: str) -> SessionOut:
+@app.get("/api/sessions")
+def history(request: Request) -> dict:
+    return {"tasks": store.storage.history(request.state.owner)}
+
+
+@app.get("/api/sessions/{sid}")
+def get_session(sid: str) -> dict:
     item = store.get(sid)
     if item is None:
         raise HTTPException(status_code=404, detail="session not found")
     store.touch(sid)
-    return SessionOut(session_id=sid, state=item["state"])
+    return store.public(sid)
+
+
+@app.get("/api/sessions/{sid}/images")
+def get_images(sid: str) -> dict:
+    return {"images": [
+        {**row, "title": row["shot"]} for row in persist.get_images(sid, with_blobs=False)
+    ]}
+
+
+@app.get("/api/sessions/{sid}/images/{image_id}")
+def get_image(sid: str, image_id: str) -> Response:
+    if len(image_id) != 32 or any(c not in "0123456789abcdef" for c in image_id):
+        raise HTTPException(404)
+    raw = persist.get_image(sid, image_id)
+    if not raw:
+        raise HTTPException(404)
+    return Response(raw, media_type="image/png" if raw.startswith(b"\x89PNG") else "image/jpeg")
 
 
 @app.post("/api/sessions/{sid}/heartbeat")
@@ -273,7 +298,13 @@ def stop_generation(sid: str) -> dict:
 
 @app.post("/api/sessions/{sid}/close")
 def close_session(sid: str) -> dict:
-    """Delete the interactive task (browser window closed / refreshed)."""
+    """Keep the archive when a browser disconnects."""
+    store.touch(sid)
+    return {"ok": True}
+
+
+@app.delete("/api/sessions/{sid}")
+def delete_session(sid: str) -> dict:
     store.delete(sid)
     return {"ok": True}
 
@@ -301,7 +332,7 @@ def generate_episode(sid: str, body: EpisodeRequest) -> EpisodeResponse:
             zip(episode.storyboards, prompts, urls)
         ):
             sb.image_url = image_url
-            persist.save_image(sid, episode.number, idx, sb.shot, sb.scene, prompt, sb.image_url)
+            sb.image_url = persist.save_image(sid, episode.number, idx, sb.shot, sb.scene, prompt, sb.image_url)
     store.add_episode(sid, episode)
     item = store.get(sid)
     persist.save_task_state(sid, item["state"])
@@ -364,7 +395,7 @@ def generate_references(sid: str, body: ReferenceRequest) -> ReferenceResponse:
     urls = imagegen.generate_images([ref.prompt for ref in tasks])
     for idx, (ref, image_url) in enumerate(zip(tasks, urls)):
         ref.image_url = image_url
-        persist.save_image(
+        ref.image_url = persist.save_image(
             sid, 0, idx, ref.title, ref.kind, ref.prompt, ref.image_url,
             kind=ref.kind, character_name=ref.character_name,
         )
@@ -373,7 +404,7 @@ def generate_references(sid: str, body: ReferenceRequest) -> ReferenceResponse:
 
 
 @app.post("/api/sessions/{sid}/novel/generate")
-def generate_novel(sid: str, body: NovelRequest) -> StreamingResponse:
+def generate_novel(sid: str, body: NovelRequest, request: Request) -> StreamingResponse:
     item = store.get(sid)
     if item is None:
         raise HTTPException(status_code=404, detail="session not found")
@@ -388,12 +419,14 @@ def generate_novel(sid: str, body: NovelRequest) -> StreamingResponse:
     if not store.begin_novel(sid):
         raise HTTPException(status_code=409, detail="正文生成中，请勿重复提交。")
     cancel_event = store.novel_cancel_event(sid)
+    store.set_auto_run(sid, True)
+    deadline = request.state.generation_deadline
 
     def encode(event):
         return json.dumps(event, ensure_ascii=False) + "\n"
 
     def stopped():
-        return store.get(sid) is None or cancel_event.is_set()
+        return not store.exists(sid) or cancel_event.is_set() or time.monotonic() > deadline
 
     def save(state):
         return store.save_novel_state(sid, state, cancel_event, persist.save_task_state)
@@ -403,10 +436,14 @@ def generate_novel(sid: str, body: NovelRequest) -> StreamingResponse:
         try:
             if state.novel is None:
                 yield encode({"type": "planning"})
-                state.novel = novel.plan_novel(state, body)
+                state.novel = novel.plan_novel(state, body, deadline=deadline)
                 if not save(state):
                     yield encode({"type": "interrupted"})
                     return
+                # Planning is a separate request, too. It cannot eat into the
+                # time available for writing the first chapter.
+                yield encode({"type": "next", "state": state.model_dump(mode="json")})
+                return
             yield encode({"type": "plan", "state": state.model_dump(mode="json")})
             for chapter in state.novel.chapters:
                 if stopped():
@@ -416,7 +453,7 @@ def generate_novel(sid: str, body: NovelRequest) -> StreamingResponse:
                     continue
                 yield encode({"type": "chapter_start", "number": chapter.number, "title": chapter.title})
                 completed = False
-                for ev in novel.stream_chapter(state, chapter, stopped):
+                for ev in novel.stream_chapter(state, chapter, stopped, deadline=deadline):
                     store.touch(sid)
                     if ev["type"] == "chapter_complete":
                         result = ev["chapter"]
@@ -434,12 +471,20 @@ def generate_novel(sid: str, body: NovelRequest) -> StreamingResponse:
                     else:
                         yield encode(ev)
                 if not completed:
+                    store.set_auto_run(sid, False)
                     yield encode({"type": "interrupted"})
                     return
+                # Exactly one completed chapter is committed per request.
+                if any(not c.content for c in state.novel.chapters):
+                    yield encode({"type": "next", "state": state.model_dump(mode="json")})
+                    return
+                break
+            store.set_auto_run(sid, False)
             yield encode({"type": "done", "state": state.model_dump(mode="json")})
         except GeneratorExit:
             raise
         except Exception as exc:
+            store.set_auto_run(sid, False)
             yield encode({"type": "error", "message": public_error(exc)})
         finally:
             store.end_novel(sid, cancel_event)
@@ -456,17 +501,7 @@ def export_word(sid: str) -> Response:
     if item:
         state = item["state"]
     else:
-        # Completed output survives the browser task being closed/refreshed.
-        row = persist.get_task(sid)
-        if row is None:
-            raise HTTPException(status_code=404, detail="session not found")
-        data = {key: row[key] for key in SessionState.model_fields if key in row}
-        for key in ("characters", "episodes", "novel", "writing", "discussion_chapters"):
-            if row.get(key):
-                data[key] = json.loads(row[key])
-            else:
-                data.pop(key, None)
-        state = SessionState.model_validate(data)
+        raise HTTPException(status_code=404, detail="session not found")
     if not (state.novel and any(c.content for c in state.novel.chapters)) and not state.episodes:
         raise HTTPException(status_code=400, detail="请先生成至少一章正文或分镜剧本。")
     node = shutil.which("node")

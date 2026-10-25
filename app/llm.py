@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from typing import Iterator, Optional
+import time
+import httpx
 
 from openai import OpenAI
 
@@ -20,10 +22,18 @@ class OutputTruncatedError(ValueError):
     """The model exhausted its output budget before finishing."""
 
 
-def get_client() -> OpenAI:
+def get_client(deadline: float | None = None) -> OpenAI:
     global _client
     if _client is None:
         _client = OpenAI(base_url=config.LLM_BASE_URL, api_key=config.ARK_API_KEY)
+    if deadline is not None:
+        remaining = deadline - time.monotonic()
+        if remaining <= 5:
+            raise TimeoutError("Chapter request time limit reached.")
+        return _client.with_options(
+            timeout=httpx.Timeout(min(60, remaining - 5), connect=min(10, remaining - 5)),
+            max_retries=0,
+        )
     return _client
 
 
@@ -32,6 +42,7 @@ def chat(
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
     model_key: Optional[str] = None,
+    deadline: float | None = None,
 ) -> str:
     """Send a completion; use the main agent unless a writer key is supplied."""
     model_key = config.normalize_text_model(model_key)
@@ -44,7 +55,7 @@ def chat(
     if model_key is None or model_key.startswith("deepseek-"):
         kwargs["extra_body"] = dict(_REASONING)
     kwargs["max_tokens"] = min(max_tokens or settings["max_tokens"], settings["max_tokens"])
-    resp = get_client().chat.completions.create(**kwargs)
+    resp = get_client(deadline).chat.completions.create(**kwargs)
     if resp.choices[0].finish_reason == "length":
         raise OutputTruncatedError("模型输出达到 token 上限，请缩小单次生成范围后重试。")
     return (resp.choices[0].message.content or "").strip()
@@ -55,6 +66,7 @@ def chat_stream(
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
     model_key: Optional[str] = None,
+    deadline: float | None = None,
 ) -> Iterator[str]:
     """Stream a completion; use the main agent unless a writer key is supplied."""
     model_key = config.normalize_text_model(model_key)
@@ -68,7 +80,7 @@ def chat_stream(
     if model_key is None or model_key.startswith("deepseek-"):
         kwargs["extra_body"] = dict(_REASONING)
     kwargs["max_tokens"] = min(max_tokens or settings["max_tokens"], settings["max_tokens"])
-    stream = get_client().chat.completions.create(**kwargs)
+    stream = get_client(deadline).chat.completions.create(**kwargs)
     try:
         for chunk in stream:
             if not chunk.choices:

@@ -4,3 +4,4 @@ python-dotenv
 fastapi
 uvicorn[standard]
 Pillow>=10
+tos>=2.8,<3

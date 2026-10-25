@@ -456,3 +456,33 @@ button.ghost:hover { background: var(--panel-2); }
   }
   .composer input[type="text"] { font-size: 16px; }
 }
+
+/* Equal-height desktop history and references; history becomes a mobile drawer. */
+.side-panel { display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
+.references-panel { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.history-panel { min-height: 0; display: flex; flex-direction: column; border-bottom: 1px solid var(--border); }
+.history-heading { display: flex; align-items: center; justify-content: space-between; padding: 12px 10px; flex-shrink: 0; }
+.history-heading h2 { margin: 0; }
+.history-list { overflow-y: auto; min-height: 0; padding: 0 8px 10px; flex: 1; }
+.history-row { display: flex; gap: 4px; margin-bottom: 7px; min-width: 0; }
+.history-select { flex: 1; min-width: 0; padding: 9px; text-align: left; display: flex; flex-direction: column; gap: 5px; }
+.history-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.history-select .muted { font-size: 11px; overflow-wrap: anywhere; }
+.history-row.selected .history-select { border-color: var(--accent); }
+.history-delete { padding: 5px; align-self: center; min-width: 28px; }
+#history-open, #history-close { display: none; }
+.history-shade { position: fixed; inset: 0; background: #0009; z-index: 29; }
+
+@media (max-width: 950px), (pointer: coarse) {
+  .side-panel { display: contents; }
+  .references-panel { display: none; }
+  .history-panel {
+    display: none; position: fixed; inset: 0 auto 0 0; width: min(86vw, 360px);
+    height: var(--app-height, 100dvh); background: var(--panel);
+    border-right: 1px solid var(--border); z-index: 30;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .history-panel.drawer-open { display: flex; }
+  #history-open, #history-close { display: inline-block; font-size: 12px; padding: 6px; }
+  .history-heading { padding: 16px 12px; }
+}

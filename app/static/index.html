@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title data-i18n="title">Movie Script Agent</title>
-  <link rel="stylesheet" href="/style.css?v=20261025-5" />
+  <link rel="stylesheet" href="/style.css?v=20261025-6" />
 </head>
 <body>
   <header class="topbar">
@@ -24,6 +24,7 @@
         <option value="ko">한국어</option>
       </select>
       <button id="new-task" class="ghost" data-i18n="newTask">New Task</button>
+      <button id="history-open" class="ghost" aria-expanded="false" aria-controls="history-panel" data-i18n="history">历史剧本</button>
     </div>
   </header>
 
@@ -64,6 +65,14 @@
     </section>
 
     <aside class="side-panel">
+      <section id="history-panel" class="history-panel">
+        <div class="history-heading">
+          <h2 data-i18n="history">历史剧本</h2>
+          <button id="history-close" class="ghost" data-i18n="closeHistory">关闭</button>
+        </div>
+        <div id="history-list" class="history-list"></div>
+      </section>
+      <section class="references-panel">
       <div class="side-scroll">
         <h2 data-i18n="referenceImages">Reference Images</h2>
         <div id="ref-output" class="ref-output">
@@ -76,11 +85,13 @@
           <button id="ref-gen" class="secondary" data-i18n="generateRefs">生成</button>
         </div>
       </div>
+      </section>
     </aside>
   </main>
+  <div id="history-shade" class="history-shade hidden"></div>
 
-  <script src="/i18n.js?v=20261025-5"></script>
-  <script src="/speech-input.js?v=20261025-5"></script>
-  <script src="/app.js?v=20261025-5"></script>
+  <script src="/i18n.js?v=20261025-6"></script>
+  <script src="/speech-input.js?v=20261025-6"></script>
+  <script src="/app.js?v=20261025-6"></script>
 </body>
 </html>

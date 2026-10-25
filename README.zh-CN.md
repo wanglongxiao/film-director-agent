@@ -18,13 +18,14 @@
 
 - 讨论背景、角色、大纲、剧本形式、风格与年龄分级。
 - 主 Agent 与剧本模型独立配置；网页可选 `deepseek-1017`（默认）和 `seed-sc-0215`。
-- 规划 10–120 章，逐章流式生成；完成章节自动保存，支持停止与继续生成。
+- 规划 10–120 章，每次 HTTP 请求生成一章，保存成功后自动请求下一章，无需逐章手动操作。
 - 导出 Word：剧本题目、章节索引、小说正文、附录（背景设定、人物侧写及对应角色图片）。
 - 生成 4:3 角色定妆图与场景参考图，最大并发 10，支持临时错误重试。
 - 支持简体中文、繁体中文、英文、日文和韩文。
 - 底部输入栏支持录音，通过 Seed-Speech 转为可编辑文字；识别成功后不显示额外提示，不自动发送。需允许麦克风权限并使用 HTTPS（localhost 也可），单次录音最长 120 秒。
 - 移动端输入栏保持在可见屏幕底部，消息区内部滚动；竖屏和横屏均隐藏参考图模块。
-- 每个浏览器窗口独立任务，完成内容保存在本地 SQLite。
+- 刷新或重新打开可恢复讨论、已完成章节和图片；桌面右栏历史剧本与参考图各占一半，移动端使用历史抽屉。
+- 签名浏览器 Cookie 隔离历史任务；云端任务和图片文件持久保存在私有 TOS，本地开发使用 SQLite。
 
 ## 本地启动
 
@@ -62,32 +63,37 @@ uv run --with-requirements requirements.txt uvicorn app.main:app --host 127.0.0.
 | `SPEECH_APPID` | 自己账户的语音应用 ID |
 | `SPEECH_ASR_URL` | 独立的 Seed-Speech API 域名 |
 | `SPEECH_RESOURCE_ID` | `volc.seedasr.auc_turbo` |
+| `BYTEPLUS_AK` / `BYTEPLUS_SK` | 具有 TOS 任务前缀权限的服务端私有凭据 |
+| `TOS_REGION` | `ap-southeast-1` |
+| `TOS_BUCKET` | 自己的私有桶 |
+| `TOS_ENDPOINT` | `https://tos-ap-southeast-1.bytepluses.com` |
+| `TASK_STORAGE` | 本地默认 `sqlite`，也可设为 `tos`；云端强制 TOS |
 
 主 Agent 负责讨论、背景、人物侧写、大纲和信息补全；所选剧本模型负责章节规划、正文、连续性摘要和分镜。`SCRIPT_LLM_TEMPERATURE` 默认 `0.9`，用于讨论与创作，连续性摘要使用 `0.2`。网页通过 `/api/models` 自动读取模型名称、输出上限、篇幅范围及默认值、语音功能可用状态，不返回私有端点和密钥。实际输出能力、请求上限和内容限制以模型服务商为准。
 
 ## BytePlus veFaaS 部署
 
-函数使用 Python 3.12，启动命令为 `bash run_cloud.sh`；Linux Python 依赖放在 `vendor/`，Word 导出所需的 Linux Node.js 放在 `runtime/bin/`。通过服务端环境变量注入模型和语音参数、`ARK_API_KEY`、`WEBUI_CLOUD_MODE=true`、`WEBUI_ACCESS_PASSWORD` 及随机生成的 `WEBUI_SESSION_SECRET`。部署包不包含 `.env`、云端 AK/SK 和本地数据库。Seed-Speech 使用独立域名及 `X-Api-Key` 鉴权，转写不需要云端 AK/SK。
+函数使用 Python 3.12，启动命令为 `bash run_cloud.sh`；Linux Python 依赖放在 `vendor/`，Word 导出所需的 Linux Node.js 放在 `runtime/bin/`。通过服务端环境变量注入模型和语音参数、`ARK_API_KEY`、`WEBUI_CLOUD_MODE=true`、`WEBUI_ACCESS_PASSWORD`、保持稳定的随机 `WEBUI_SESSION_SECRET`，以及上述 TOS 配置和服务端 AK/SK。部署压缩包及 Git 不包含 `.env`、凭据或本地数据库。Seed-Speech 使用独立 API Key，AK/SK 仅在服务端用于访问 TOS。
 
 `MinInstance` 和 `MaxInstance` 均设为 `1`。API 网关路由匹配 `/` 前缀并允许应用使用的 HTTP 方法。长文本生成使用函数超时 900 秒、API 网关路由超时 900,000 毫秒。
 
-云端页面、静态资源和 API 均需登录，本地模式不需要密码。云端 SQLite 默认路径为 `/tmp/movieagent/script.db`，实例重建时数据会丢失；重建前请导出作品，或挂载可写持久化存储并通过 `SCRIPT_DB_PATH` 指定路径。
+云端页面、静态资源和 API 均需登录，本地模式不需要密码。TOS 的 `movieagent/v1/tasks/{浏览器}/{任务}/` 保存任务 JSON 和原始图片，`movieagent/v1/history/{浏览器}/` 保存每项任务的简要索引。桶保持私有；每次任务、图片和导出操作都验证签名浏览器身份。任务写入使用 ETag 条件校验及持久化请求占用标记，拒绝并发修改，不使用所有用户共用的可变索引。部署时保持会话签名密钥不变，已有浏览器身份才能继续有效。
 
 ## 写作与导出
 
 1. 先设置 10–120 章（默认 20 章），每章 2,000–10,000 字（默认 4,000 字）；英文按单词计数。范围与默认值统一定义在 `config.GENERATION_SETTINGS`，网页自动读取。
 2. 在创作讨论中完成角色侧写和故事大纲。桌面端参考图每次 1–10 张，默认 4 张。
-3. 生成完整正文，各章参考已完成章节的事实摘要与上一章结尾，保持叙事连贯。
+3. 生成完整正文：章节规划单独请求，随后每个请求只写一章；保存成功后浏览器自动继续。各章参考已完成章节的事实摘要与上一章结尾，保持叙事连贯。
 4. 可停止后继续；使用同一章节规划和篇幅设置。章节达到目标篇幅至少 80% 且未被截断后才保存。
-5. 刷新或关闭前导出 Word；未完成作品标注“未完成稿”。
+5. 刷新或重新打开恢复当前任务，也可从历史剧本中选择。保存第一章后即可导出 Word；未完成作品标注“未完成稿”。
 
 创作讨论与小说正文均使用网页中的章数和每章字数。章数严格遵守，字数为近似目标，至少达到 80% 才保存。讨论会保存包含指定章数的结构化章节计划；正文以讨论中的背景、人物、大纲和章节计划为主要要求，允许兼容这些设定的细节创意发挥。正文开始前修改篇幅时，下次请求会重新生成讨论章节计划。移动设备竖屏和横屏均隐藏参考图模块。
 
-刷新、关闭或切换语言会新建交互任务。完成章节及图片保存在 `data/script.db`；知道原任务 ID 时，可通过 `/api/sessions/{id}/export/word` 导出归档。私人运行数据不提交到 Git。
+刷新和关闭保留任务；切换语言或点击“新任务”会创建另一个任务，原任务仍在历史中。每章请求设置低于网关 900 秒上限的生成时间窗口，心跳不能延长网关上限。连接中断后，浏览器先查询已保存进度，再决定是否重试。只保存完整章节，中断章节可能重新生成。关闭页面后不会请求后续章节，重新打开后自动继续尚在生成中的作品。实例消失后，可能需等待最长 14 分钟的请求占用期结束。清除浏览器 Cookie 或换浏览器会获得独立历史；逐条删除会移除该任务和全部图片。
 
 ## 项目目录与本地数据
 
-`app/main.py` 是 FastAPI 入口，`app/static/` 是五语言页面。`config.py` 读取 `.env`，`app/persist.py` 读写实际使用的 `data/script.db`。数据库保存任务设定、完成正文、图片 URL 和角色图片缓存，属于有效归档，不是临时文件，应保留。数据库连接按操作打开和关闭，因此不一定持续出现在服务进程的打开文件列表中。
+`app/main.py` 是 FastAPI 入口，`app/static/` 是五语言页面，`config.py` 读取 `.env`。`app/storage.py` 在云端使用私有 TOS，在本地使用 `data/script.db`，提供带版本校验的对象写入；`app/store.py` 管理请求运行和恢复，`app/persist.py` 保存图片与任务状态。原有本地归档表保留，新的浏览器隔离任务使用 `task_objects` 表。数据库属于有效归档，应保留。
 
 `package.json` 和 `package-lock.json` 提供 Word 导出依赖；`movieagent-demo.mp4` 是演示视频。`.githooks/`、`.gitleaks.toml` 和 `.github/workflows/secrets.yml` 用于提交保护。本地 `.env`、`data/`、`node_modules/` 和编辑器设置不提交。与当前项目无关的旧远端实现已删除。
 
