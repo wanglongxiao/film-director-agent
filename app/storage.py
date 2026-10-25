@@ -3,11 +3,9 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
-import threading
 import time
-import uuid
-from contextlib import closing
+
+import tos
 
 import config
 
@@ -18,84 +16,48 @@ class Conflict(RuntimeError):
 
 class Storage:
     def __init__(self):
-        self.cloud = config.WEBUI_CLOUD_MODE or os.getenv("TASK_STORAGE") == "tos"
-        self.lock = threading.RLock()
-        if self.cloud:
-            import tos
-            self.tos = tos
-            self.bucket = config.TOS_BUCKET
-            if not all((self.bucket, config.TOS_REGION, config.TOS_ENDPOINT,
-                        os.getenv("BYTEPLUS_AK"), os.getenv("BYTEPLUS_SK"))):
-                raise RuntimeError("TOS storage configuration is required.")
-            self.client = tos.TosClientV2(
-                os.environ["BYTEPLUS_AK"], os.environ["BYTEPLUS_SK"],
-                config.TOS_ENDPOINT, config.TOS_REGION,
-                connection_time=5, socket_timeout=10, max_retry_count=0,
-            )
-        else:
-            self.path = os.getenv("SCRIPT_DB_PATH", os.path.join(os.path.dirname(config.__file__), "data", "script.db"))
-            os.makedirs(os.path.dirname(os.path.abspath(self.path)), exist_ok=True)
-            with closing(sqlite3.connect(self.path)) as db:
-                db.execute("CREATE TABLE IF NOT EXISTS task_objects (key TEXT PRIMARY KEY, data BLOB, etag TEXT)")
-                db.commit()
+        self.bucket = config.TOS_BUCKET
+        if not all((self.bucket, config.TOS_REGION, config.TOS_ENDPOINT,
+                    os.getenv("BYTEPLUS_AK"), os.getenv("BYTEPLUS_SK"))):
+            raise RuntimeError("TOS storage configuration is required.")
+        self.client = tos.TosClientV2(
+            os.environ["BYTEPLUS_AK"], os.environ["BYTEPLUS_SK"],
+            config.TOS_ENDPOINT, config.TOS_REGION,
+            connection_time=5, socket_timeout=10, max_retry_count=0,
+        )
 
     def get(self, key):
-        if self.cloud:
-            try:
-                result = self.client.get_object(self.bucket, key)
-                return result.read(), result.etag
-            except self.tos.exceptions.TosServerError as exc:
-                if exc.status_code == 404:
-                    return None, None
-                raise
-        with self.lock, closing(sqlite3.connect(self.path)) as db:
-            row = db.execute("SELECT data, etag FROM task_objects WHERE key=?", (key,)).fetchone()
-            return row if row else (None, None)
+        try:
+            result = self.client.get_object(self.bucket, key)
+            return result.read(), result.etag
+        except tos.exceptions.TosServerError as exc:
+            if exc.status_code == 404:
+                return None, None
+            raise
 
     def put(self, key, data, etag=None, create=False):
-        if self.cloud:
-            try:
-                return self.client.put_object(
-                    self.bucket, key, content=data, if_match=etag,
-                    forbid_overwrite=True if create else None,
-                    content_type="application/json" if key.endswith(".json") else "application/octet-stream",
-                ).etag
-            except self.tos.exceptions.TosServerError as exc:
-                if exc.status_code in (409, 412):
-                    raise Conflict("Task changed; reload before retrying.") from None
-                raise
-        with self.lock, closing(sqlite3.connect(self.path, timeout=30)) as db:
-            db.execute("BEGIN IMMEDIATE")
-            row = db.execute("SELECT etag FROM task_objects WHERE key=?", (key,)).fetchone()
-            if (create and row) or (etag is not None and (not row or row[0] != etag)):
-                raise Conflict("Task changed; reload before retrying.")
-            version = uuid.uuid4().hex
-            db.execute("INSERT OR REPLACE INTO task_objects VALUES (?,?,?)", (key, data, version))
-            db.commit()
-            return version
+        try:
+            return self.client.put_object(
+                self.bucket, key, content=data, if_match=etag,
+                forbid_overwrite=True if create else None,
+                content_type="application/json" if key.endswith(".json") else "application/octet-stream",
+            ).etag
+        except tos.exceptions.TosServerError as exc:
+            if exc.status_code in (409, 412):
+                raise Conflict("Task changed; reload before retrying.") from None
+            raise
 
     def delete(self, key):
-        if self.cloud:
-            self.client.delete_object(self.bucket, key)
-        else:
-            with self.lock, closing(sqlite3.connect(self.path)) as db:
-                db.execute("DELETE FROM task_objects WHERE key=?", (key,))
-                db.commit()
+        self.client.delete_object(self.bucket, key)
 
     def keys(self, prefix):
-        if self.cloud:
-            token = None
-            while True:
-                result = self.client.list_objects_type2(self.bucket, prefix=prefix, continuation_token=token)
-                yield from (obj.key for obj in result.contents)
-                if not result.is_truncated:
-                    break
-                token = result.next_continuation_token
-        else:
-            with self.lock, closing(sqlite3.connect(self.path)) as db:
-                yield from (r[0] for r in db.execute(
-                    "SELECT key FROM task_objects WHERE key LIKE ?", (prefix + "%",)
-                ))
+        token = None
+        while True:
+            result = self.client.list_objects_type2(self.bucket, prefix=prefix, continuation_token=token)
+            yield from (obj.key for obj in result.contents)
+            if not result.is_truncated:
+                break
+            token = result.next_continuation_token
 
     @staticmethod
     def task_key(owner, sid):

@@ -25,7 +25,7 @@ The video shows an earlier version; the current app also supports full manuscrip
 - Record speech in the input bar and convert it to editable text with Seed-Speech. Recording requires microphone permission and HTTPS (localhost also works), and stops after 120 seconds. Text is inserted without a success notice and is not sent automatically.
 - On mobile, the input bar stays at the bottom of the visible screen while messages scroll inside the page. Portrait and landscape modes hide the reference-image panel.
 - Restore discussions, completed chapters and images from script history after refresh or reopening. Desktop history and references share the right panel equally; mobile uses a history drawer.
-- Isolate history with a signed browser cookie. Cloud tasks and image files persist in private TOS; local development uses SQLite.
+- Isolate history with a signed browser cookie. Both local and cloud tasks and image files persist in private TOS.
 
 ## Run locally
 
@@ -35,7 +35,7 @@ Install Python 3.12+, [uv](https://docs.astral.sh/uv/), and Node.js 18+.
 git clone https://github.com/wanglongxiao/film-director-agent.git
 cd film-director-agent
 cp .env.example .env
-# Fill in ARK_API_KEY and model endpoints in .env.
+# Fill in model settings and private TOS credentials in .env.
 npm ci
 uv run --with-requirements requirements.txt uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
@@ -67,7 +67,6 @@ Keys and endpoint IDs stay on the server. `.env.example` leaves these fields emp
 | `TOS_REGION` | `ap-southeast-1` |
 | `TOS_BUCKET` | Your private bucket |
 | `TOS_ENDPOINT` | `https://tos-ap-southeast-1.bytepluses.com` |
-| `TASK_STORAGE` | Local: `sqlite` (default) or `tos`; cloud always uses TOS |
 
 The main agent handles discussion and story setup. The selected writer handles chapter plans, prose, summaries, and storyboards. `SCRIPT_LLM_TEMPERATURE` defaults to `0.9` for discussion and writing; continuity summaries use `0.2`. `/api/models` supplies model names, output budgets, generation limits and defaults, and speech availability, without private endpoints or keys. Actual output limits and available content depend on the model provider.
 
@@ -93,9 +92,9 @@ Refresh and close preserve tasks. Switching language or choosing New Task create
 
 ## Project files and local data
 
-`app/main.py` is the FastAPI entry point; `app/static/` holds the five-language UI. `config.py` loads `.env`. `app/storage.py` provides conditional object writes through private TOS in cloud mode or the local `data/script.db` SQLite database; `app/store.py` manages runtime requests and recovery, and `app/persist.py` saves images and task state. Existing local archive tables are preserved; new browser-scoped tasks use the `task_objects` table. Keep the database to retain local history.
+`app/main.py` is the FastAPI entry point; `app/static/` holds the five-language UI. `config.py` loads `.env`. `app/storage.py` provides conditional writes to private TOS in both local and cloud mode; `app/store.py` manages runtime requests and recovery, and `app/persist.py` saves images and task state. Storage credentials are required for local startup too. Existing database archives are not read or modified.
 
-`package.json` and `package-lock.json` provide Word export dependencies. `movieagent-demo.mp4` is the demo. `.githooks/`, `.gitleaks.toml`, and `.github/workflows/secrets.yml` protect commits. Local `.env`, `data/`, `node_modules/`, and editor settings stay out of Git. The unrelated earlier remote implementation has been removed.
+`package.json` and `package-lock.json` provide Word export dependencies. `movieagent-demo.mp4` is the demo. Repository hooks and ignore rules are local tooling and are not distributed through GitHub. Local `.env`, archived data, `node_modules/`, and editor settings stay out of Git.
 
 To check the running server:
 
@@ -106,14 +105,13 @@ curl --fail http://127.0.0.1:8000/api/models
 
 ## Before committing
 
-Install [Gitleaks](https://github.com/gitleaks/gitleaks) (`brew install gitleaks` on macOS) and enable the included hook:
+Install [Gitleaks](https://github.com/gitleaks/gitleaks) (`brew install gitleaks` on macOS) and scan before committing:
 
 ```bash
-git config core.hooksPath .githooks
 gitleaks git --redact --log-opts="--all" .
 git diff --cached --name-only
 ```
 
-The pre-commit hook checks staged files, rejects private configuration and runtime files, compares staged content with keys in local `.env` files without printing them, and fails if Gitleaks is unavailable. Gitleaks detects common credentials and the ModelArk key format. CI also scans the full Git history. `.gitignore` excludes environment files, private key files, logs, caches, editor settings, and SQLite data. Only `.env.example` is public.
+Only `.env.example` is public. Keep environment files, private keys, logs, caches, editor settings and archived data out of commits. Set up your own local ignore rules and hooks when cloning; these files and CI workflows are not distributed in this repository.
 
 These checks reduce the risk of accidental exposure; they cannot guarantee detection of every possible credential. If a key has already been shared or published, revoke it and issue a new one.

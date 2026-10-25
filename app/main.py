@@ -448,17 +448,12 @@ def generate_novel(sid: str, body: NovelRequest, request: Request) -> StreamingR
             if state.novel is None:
                 state.novel = novel.novel_from_discussion(state, body)
                 if state.novel is None:
-                    logger.info("novel plan_source sid=%s source=model", sid)
                     yield encode({"type": "planning"})
                     state.novel = novel.plan_novel(state, body, deadline=deadline)
-                else:
-                    logger.info("novel plan_source sid=%s source=discussion count=%s",
-                                sid, len(state.novel.chapters))
                 if not save(state):
                     yield encode({"type": "interrupted"})
                     return
                 yield encode({"type": "plan", "state": state.model_dump(mode="json")})
-                logger.info("novel plan_saved sid=%s elapsed=%.1f", sid, time.monotonic() - began)
                 # Planning is a separate request, too. It cannot eat into the
                 # time available for writing the first chapter.
                 yield encode({"type": "next", "state": state.model_dump(mode="json")})
@@ -472,7 +467,6 @@ def generate_novel(sid: str, body: NovelRequest, request: Request) -> StreamingR
                     continue
                 phase = "chapter"
                 chapter_number = chapter.number
-                logger.info("novel chapter_start sid=%s number=%s", sid, chapter.number)
                 yield encode({"type": "chapter_start", "number": chapter.number, "title": chapter.title})
                 completed = False
                 for ev in novel.stream_chapter(state, chapter, stopped, deadline=deadline):
@@ -525,7 +519,6 @@ def generate_novel(sid: str, body: NovelRequest, request: Request) -> StreamingR
     return StreamingResponse(
         with_heartbeats(
             generate(), cancel_event.set,
-            lambda elapsed: logger.info("novel heartbeat sid=%s elapsed=%s", sid, elapsed),
         ), media_type="application/x-ndjson",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

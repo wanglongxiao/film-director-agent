@@ -25,7 +25,7 @@
 - 底部输入栏支持录音，通过 Seed-Speech 转为可编辑文字；识别成功后不显示额外提示，不自动发送。需允许麦克风权限并使用 HTTPS（localhost 也可），单次录音最长 120 秒。
 - 移动端输入栏保持在可见屏幕底部，消息区内部滚动；竖屏和横屏均隐藏参考图模块。
 - 刷新或重新打开可恢复讨论、已完成章节和图片；桌面右栏历史剧本与参考图各占一半，移动端使用历史抽屉。
-- 签名浏览器 Cookie 隔离历史任务；云端任务和图片文件持久保存在私有 TOS，本地开发使用 SQLite。
+- 签名浏览器 Cookie 隔离历史任务；本地与云端任务、图片统一持久保存在私有 TOS。
 
 ## 本地启动
 
@@ -35,7 +35,7 @@
 git clone https://github.com/wanglongxiao/film-director-agent.git
 cd film-director-agent
 cp .env.example .env
-# 在 .env 中填写 ARK_API_KEY 及模型端点。
+# 在 .env 中填写模型参数与私有 TOS 凭据。
 npm ci
 uv run --with-requirements requirements.txt uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
@@ -67,7 +67,6 @@ uv run --with-requirements requirements.txt uvicorn app.main:app --host 127.0.0.
 | `TOS_REGION` | `ap-southeast-1` |
 | `TOS_BUCKET` | 自己的私有桶 |
 | `TOS_ENDPOINT` | `https://tos-ap-southeast-1.bytepluses.com` |
-| `TASK_STORAGE` | 本地默认 `sqlite`，也可设为 `tos`；云端强制 TOS |
 
 主 Agent 负责讨论、背景、人物侧写、大纲和信息补全；所选剧本模型负责章节规划、正文、连续性摘要和分镜。`SCRIPT_LLM_TEMPERATURE` 默认 `0.9`，用于讨论与创作，连续性摘要使用 `0.2`。网页通过 `/api/models` 自动读取模型名称、输出上限、篇幅范围及默认值、语音功能可用状态，不返回私有端点和密钥。实际输出能力、请求上限和内容限制以模型服务商为准。
 
@@ -93,9 +92,9 @@ uv run --with-requirements requirements.txt uvicorn app.main:app --host 127.0.0.
 
 ## 项目目录与本地数据
 
-`app/main.py` 是 FastAPI 入口，`app/static/` 是五语言页面，`config.py` 读取 `.env`。`app/storage.py` 在云端使用私有 TOS，在本地使用 `data/script.db`，提供带版本校验的对象写入；`app/store.py` 管理请求运行和恢复，`app/persist.py` 保存图片与任务状态。原有本地归档表保留，新的浏览器隔离任务使用 `task_objects` 表。数据库属于有效归档，应保留。
+`app/main.py` 是 FastAPI 入口，`app/static/` 是五语言页面，`config.py` 读取 `.env`。`app/storage.py` 在本地和云端统一使用私有 TOS，提供带版本校验的对象写入；`app/store.py` 管理请求运行和恢复，`app/persist.py` 保存图片与任务状态。本地启动也需要配置 TOS 凭据；旧数据库归档不再读写。
 
-`package.json` 和 `package-lock.json` 提供 Word 导出依赖；`movieagent-demo.mp4` 是演示视频。`.githooks/`、`.gitleaks.toml` 和 `.github/workflows/secrets.yml` 用于提交保护。本地 `.env`、`data/`、`node_modules/` 和编辑器设置不提交。与当前项目无关的旧远端实现已删除。
+`package.json` 和 `package-lock.json` 提供 Word 导出依赖；`movieagent-demo.mp4` 是演示视频。提交钩子和忽略规则属于本地工具，不通过 GitHub 分发。本地 `.env`、旧归档数据、`node_modules/` 和编辑器设置不提交。
 
 检查运行中的服务：
 
@@ -106,14 +105,13 @@ curl --fail http://127.0.0.1:8000/api/models
 
 ## 提交前密钥检查
 
-安装 [Gitleaks](https://github.com/gitleaks/gitleaks)（macOS 可用 `brew install gitleaks`），启用仓库提交钩子：
+安装 [Gitleaks](https://github.com/gitleaks/gitleaks)（macOS 可用 `brew install gitleaks`），提交前扫描：
 
 ```bash
-git config core.hooksPath .githooks
 gitleaks git --redact --log-opts="--all" .
 git diff --cached --name-only
 ```
 
-提交钩子检查暂存区、拒绝私有配置和运行文件，并与本地 `.env` 中的密钥进行精确比对，且不输出密钥；未安装 Gitleaks 时阻止提交。Gitleaks 检测常见凭据及 ModelArk 密钥格式，CI 扫描完整 Git 历史。`.gitignore` 排除环境文件、私钥文件、日志、缓存、编辑器配置和 SQLite 数据，只公开 `.env.example`。
+只公开 `.env.example`。环境文件、私钥、日志、缓存、编辑器配置和旧归档数据不应提交。克隆后自行配置本地忽略规则和提交钩子；仓库不分发这些文件及 CI 工作流。
 
 这些检查降低误泄露风险，无法保证识别所有形式的凭据。已分享或公开的密钥应撤销并重新签发。

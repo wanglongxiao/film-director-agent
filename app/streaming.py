@@ -12,7 +12,7 @@ HEARTBEAT_SECONDS = 10
 _END = object()
 
 
-async def with_heartbeats(source, on_disconnect, on_heartbeat=None):
+async def with_heartbeats(source, on_disconnect):
     """Advance a synchronous generator once at a time within this request.
 
     The worker is always joined before the request lease is released; it is not
@@ -29,8 +29,6 @@ async def with_heartbeats(source, on_disconnect, on_heartbeat=None):
                 ready, _ = await asyncio.wait({pending}, timeout=HEARTBEAT_SECONDS)
                 if not ready:
                     elapsed = round(time.monotonic() - began)
-                    if on_heartbeat:
-                        on_heartbeat(elapsed)
                     yield json.dumps({"type": "heartbeat", "elapsed_seconds": elapsed}) + "\n"
             event = pending.result()
             pending = None
