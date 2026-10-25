@@ -68,6 +68,7 @@ class WritingSettings(BaseModel):
 
 
 class SessionState(BaseModel):
+    title: str = ""                  # work title shared by discussion, prose and history
     stage: str = "background"
     language: str = "zh-CN"          # zh-CN / zh-TW / en / ja / ko
     text_model: TextModel = config.DEFAULT_TEXT_MODEL

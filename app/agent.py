@@ -6,6 +6,7 @@ import re
 from typing import Callable, Optional
 
 from . import llm
+from .titles import clean_title, explicit_title
 from .schemas import Chapter, Character, Episode, SessionState, Storyboard
 
 # Core assistant persona (verbatim from the product spec)
@@ -39,6 +40,7 @@ CONTENT_POLICY = """\
 
 STAGE_GUIDE = """\
 WORKFLOW STAGES (progress in order; DO NOT skip):
+- Work title: establish a distinctive title in the session language during discussion. Respect the user's chosen name; otherwise propose one based on the story. Always put it in state_update.title and show it clearly in the reply. Finalize it no later than the outline stage. Never use generic labels such as 故事正文 / Story manuscript as the work title. Keep an existing title unless the user requests renaming.
 - "background": Elicit and confirm the script background setting and tone (恐怖/爱情/历史 或更细分主题). Write `background`, `tone`, `genre` into state_update once confirmed. Ask clarifying questions when information is insufficient. Move to "characters" when background+tone are set.
 - "characters": Establish main characters (multiple allowed). Through Q&A refine each character's profile: 成长背景、性格特征，体现主角真实性与人性复杂性. **必须产出至少一个完整角色**：每个 character 对象必须同时包含 name, role, background, personality, arc 五个字段（不得为空）. Always return the FULL characters array in state_update.characters when it changes. Move to "outline" only after at least one full character profile is produced.
 - "outline": **必须生成脚本故事大纲** in state_update.outline (detailed multi-paragraph, based on background+tone+characters). Cover the complete beginning, development, turning points, climax and ending, including resolution of character arcs and major clues. Use the exact chapter count and target chapter length in state.writing. Also return state_update.discussion_chapters: exactly that many objects with number, title and synopsis, numbered sequentially from 1. Do not leave it empty. Then move to "script_type".
@@ -157,6 +159,11 @@ def _apply_state_update(state: SessionState, update: Optional[dict]) -> None:
                     ]
             except ValueError:
                 pass
+        elif key == "title":
+            if clean_title(value):
+                state.title = clean_title(value)
+                if state.novel:
+                    state.novel.title = state.title
         elif key in ("episodes", "novel", "text_model", "writing"):
             continue  # manuscripts are added via dedicated endpoints
         elif hasattr(state, key):
@@ -183,6 +190,8 @@ def run_agent(state: SessionState, history: list[dict], message: str) -> tuple[s
     if isinstance(stage, str) and stage:
         new_state.stage = stage
     _apply_state_update(new_state, parsed.get("state_update"))
+    if explicit_title(message):
+        _apply_state_update(new_state, {"title": explicit_title(message)})
     return reply, new_state
 
 
@@ -258,6 +267,8 @@ def stream_run_agent(
     if isinstance(stage, str) and stage:
         new_state.stage = stage
     _apply_state_update(new_state, parsed.get("state_update"))
+    if explicit_title(message):
+        _apply_state_update(new_state, {"title": explicit_title(message)})
     if not prev_reply and reply_text:
         # Reply was only parseable at the end (e.g. JSON discovered late): emit it now.
         yield {"type": "output", "delta": reply_text}

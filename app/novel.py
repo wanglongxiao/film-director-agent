@@ -3,11 +3,42 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Callable
 
 from . import llm
 from .agent import CONTENT_POLICY, _extract_json
 from .schemas import Chapter, Novel, NovelRequest, SessionState
+from .titles import clean_title, recover_title
+
+
+def ensure_title(state: SessionState, deadline=None) -> str:
+    title = clean_title(state.title) or (
+        clean_title(state.novel.title) if state.novel else ""
+    )
+    if not title:
+        try:
+            parsed = _extract_json(llm.chat([
+                {"role": "system", "content": (
+                    "Give this work one distinctive, concise book title in its session language. "
+                    "Use its characters and central conflict. Respect any explicitly named "
+                    "work in the outline. Return only JSON: {\"title\":\"...\"}. "
+                    "Never use a generic label such as Story manuscript or 故事正文."
+                )},
+                {"role": "user", "content": json.dumps({
+                    "language": state.language, "background": state.background[:3000],
+                    "characters": [c.model_dump() for c in state.characters],
+                    "outline": state.outline[:12000],
+                }, ensure_ascii=False)},
+            ], max_tokens=1024, model_key=state.text_model,
+                deadline=min(deadline or float("inf"), time.monotonic() + 35)))
+            title = clean_title((parsed or {}).get("title"))
+        except Exception:
+            pass
+    state.title = title or recover_title(state.model_dump()) or "Untitled"
+    if state.novel:
+        state.novel.title = state.title
+    return state.title
 
 
 def manuscript_length(text: str, language: str) -> int:
@@ -25,10 +56,8 @@ def novel_from_discussion(state: SessionState, request: NovelRequest) -> Novel |
     """Reuse the exact accepted chapter map without another planning LLM call."""
     if [c.number for c in state.discussion_chapters] != list(range(1, request.chapters_count + 1)):
         return None
-    titles = {"zh-CN": "故事正文", "zh-TW": "故事正文", "en": "Story manuscript",
-              "ja": "物語本文", "ko": "이야기 본문"}
     return Novel(
-        title=titles.get(state.language, "Story manuscript"),
+        title=state.title or recover_title(state.model_dump()) or "Untitled",
         chapters_count=request.chapters_count, chapter_length=request.chapter_length,
         chapters=[c.model_copy(update={"content": "", "summary": ""}, deep=True)
                   for c in state.discussion_chapters],
@@ -71,8 +100,11 @@ def plan_novel(state: SessionState, request: NovelRequest, deadline=None) -> Nov
     for chapter in chapters:
         chapter.content = ""
         chapter.summary = ""
+    state.title = clean_title(state.title) or clean_title(parsed.get("title")) or recover_title(
+        state.model_dump()
+    )
     return Novel(
-        title=parsed.get("title", ""),
+        title=state.title,
         chapters_count=request.chapters_count,
         chapter_length=request.chapter_length,
         chapters=chapters,

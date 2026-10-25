@@ -26,7 +26,7 @@ async function build(state) {
   const l = labels[state.language] || labels.en;
   const novel = state.novel;
   const finished = novel ? novel.chapters.filter(c => c.content) : [];
-  const title = novel ? novel.title : state.episodes?.[0]?.title || l[7];
+  const title = state.title || (novel ? novel.title : state.episodes?.[0]?.title) || l[7];
   const portraits = new Map((state.character_images || []).map(im => [im.character_name, im]));
   const children = [
     new Paragraph({ text: title, heading: HeadingLevel.TITLE, alignment: AlignmentType.CENTER }),

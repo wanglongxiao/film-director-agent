@@ -415,12 +415,13 @@ function updateNovelControls() {
 
 function renderManuscript() {
   const novel = app.state?.novel || (app.state?.discussion_chapters?.length ? {
-    title: t("manuscript"), chapters: app.state.discussion_chapters,
+    title: app.state.title || t("manuscript"), chapters: app.state.discussion_chapters,
   } : null);
   if (!novel) {
-    ui.manuscript.innerHTML = `<div class="empty">${esc(t("novelEmpty"))}</div>`;
+    ui.manuscript.innerHTML = (app.state?.title ? `<h1>${esc(app.state.title)}</h1>` : "")
+      + `<div class="empty">${esc(t("novelEmpty"))}</div>`;
   } else {
-    ui.manuscript.innerHTML = `<h1>${esc(novel.title)}</h1>` + novel.chapters.map(c => `
+    ui.manuscript.innerHTML = `<h1>${esc(app.state.title || novel.title)}</h1>` + novel.chapters.map(c => `
       <details class="chapter" id="chapter-${c.number}">
         <summary>${c.number}. ${esc(c.title)}</summary>
         <div class="chapter-synopsis">${esc(c.synopsis)}</div>
@@ -660,7 +661,7 @@ async function exportWord() {
     const url = URL.createObjectURL(await res.blob());
     const a = document.createElement("a");
     a.href = url;
-    a.download = (app.state?.novel?.title || t("manuscriptFilename")).replace(/[\\/:*?"<>|]/g, "_") + ".docx";
+    a.download = (app.state?.title || app.state?.novel?.title || t("manuscriptFilename")).replace(/[\\/:*?"<>|]/g, "_") + ".docx";
     document.body.appendChild(a);
     a.click();
     a.remove();

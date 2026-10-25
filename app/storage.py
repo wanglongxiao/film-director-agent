@@ -8,6 +8,7 @@ import time
 import tos
 
 import config
+from .titles import clean_title, recover_title, repair_document
 
 
 class Conflict(RuntimeError):
@@ -69,17 +70,35 @@ class Storage:
 
     def load(self, owner, sid):
         raw, etag = self.get(self.task_key(owner, sid))
-        return (json.loads(raw), etag) if raw else (None, None)
+        if not raw:
+            return None, None
+        doc = json.loads(raw)
+        state = doc["state"]
+        # Never mutate a task leased by another request or change history order.
+        if not (doc.get("job") or {}).get("expires_at", 0) > time.time() and (
+            state.get("novel") or (state.get("outline") and state.get("characters"))
+        ) and repair_document(doc):
+            try:
+                etag = self.save(doc, etag, preserve_time=True)
+            except Conflict:
+                raw, etag = self.get(self.task_key(owner, sid))
+                return (json.loads(raw), etag) if raw else (None, None)
+        return doc, etag
 
-    def save(self, doc, etag=None, create=False):
+    def save(self, doc, etag=None, create=False, preserve_time=False):
         owner, sid = doc["owner"], doc["session_id"]
-        doc["updated_at"] = time.time()
+        if not preserve_time:
+            doc["updated_at"] = time.time()
+        if doc["state"].get("novel"):
+            repair_document(doc)
         version = self.put(self.task_key(owner, sid),
                            json.dumps(doc, ensure_ascii=False).encode(), etag, create)
         state = doc["state"]
         book = state.get("novel") or {}
         summary = {
-            "session_id": sid, "title": book.get("title") or state.get("background", "")[:70] or sid[:8],
+            "session_id": sid, "title": clean_title(state.get("title")) or recover_title(
+                state, doc.get("history")
+            ) or sid[:8],
             "created_at": doc["created_at"], "updated_at": doc["updated_at"],
             "completed": sum(bool(c.get("content")) for c in book.get("chapters", [])),
             "total": book.get("chapters_count", state.get("writing", {}).get("chapters_count", 20)),
@@ -98,7 +117,13 @@ class Storage:
         for key in self.keys(f"movieagent/v1/history/{owner}/"):
             raw, _ = self.get(key)
             if raw:
-                summaries.append(json.loads(raw))
+                summary = json.loads(raw)
+                if not clean_title(summary.get("title")):
+                    task_raw, _ = self.get(self.task_key(owner, summary["session_id"]))
+                    if task_raw:
+                        doc = json.loads(task_raw)
+                        summary["title"] = recover_title(doc["state"], doc.get("history")) or summary["session_id"][:8]
+                summaries.append(summary)
         return sorted(summaries, key=lambda d: d["updated_at"], reverse=True)
 
     def remove(self, owner, sid):

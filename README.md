@@ -17,6 +17,7 @@ The video shows an earlier version; the current app also supports full manuscrip
 ## Features
 
 - Discuss the background, characters, outline, film format, style, and age rating.
+- Set a distinct work title during discussion; use it for the manuscript, history and Word export. Older untitled scripts recover a name from their saved discussion or story details without changing chapters.
 - Choose `deepseek-1017` (default) or `seed-sc-0215` for writing, independently of the main agent.
 - Plan 10–120 chapters, then automatically write one chapter per HTTP request. Each chapter is saved before the browser requests the next.
 - Export Word with the title, chapter index, full prose, and an appendix with background, character profiles, and each character's portrait.

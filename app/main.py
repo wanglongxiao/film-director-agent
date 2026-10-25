@@ -90,12 +90,13 @@ def complete_discussion_plan(state: SessionState, reply: str) -> str:
     if [c.number for c in state.discussion_chapters] != expected:
         plan = novel.plan_novel(state, NovelRequest(**state.writing.model_dump()))
         state.discussion_chapters = plan.chapters
+    novel.ensure_title(state)
     # Display the exact structured map even when the conversational reply only
     # contains a broad outline. This same map is passed to the prose writer.
     chapter_map = "\n\n".join(
         f"{c.number}. {c.title}\n{c.synopsis}" for c in state.discussion_chapters
     )
-    return reply + "\n\n" + chapter_map
+    return reply + "\n\n" + f"《{state.title}》" + "\n\n" + chapter_map
 
 
 @app.get("/api/health")
@@ -446,6 +447,7 @@ def generate_novel(sid: str, body: NovelRequest, request: Request) -> StreamingR
                     sum(bool(c.content) for c in state.novel.chapters) if state.novel else 0)
         try:
             if state.novel is None:
+                novel.ensure_title(state, deadline=deadline)
                 state.novel = novel.novel_from_discussion(state, body)
                 if state.novel is None:
                     yield encode({"type": "planning"})
@@ -547,7 +549,7 @@ def export_word(sid: str) -> Response:
         raise HTTPException(status_code=502, detail=public_error(exc)) from exc
     except (subprocess.SubprocessError, OSError) as exc:
         raise HTTPException(status_code=500, detail="Word 导出失败，请确认已运行 npm ci。") from exc
-    title = state.novel.title if state.novel else "电影剧本"
+    title = state.title or (state.novel.title if state.novel else "电影剧本")
     return Response(
         result.stdout,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
