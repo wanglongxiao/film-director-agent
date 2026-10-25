@@ -46,7 +46,8 @@ class Novel(BaseModel):
     # Keep existing archived manuscripts readable; new requests use current limits.
     chapters_count: int = Field(
         default=config.GENERATION_SETTINGS["chapters_count"]["default"],
-        ge=3, le=config.GENERATION_SETTINGS["chapters_count"]["max"],
+        ge=config.GENERATION_SETTINGS["chapters_count"]["min"],
+        le=config.GENERATION_SETTINGS["chapters_count"]["max"],
     )
     chapter_length: int = Field(
         default=config.GENERATION_SETTINGS["chapter_length"]["default"],

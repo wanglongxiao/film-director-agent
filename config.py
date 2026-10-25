@@ -65,7 +65,7 @@ DEFAULT_TEXT_MODEL = "deepseek-1017"
 
 # Public generation controls shared by API validation and the web UI.
 GENERATION_SETTINGS = {
-    "chapters_count": {"min": 10, "max": 120, "default": 20},
+    "chapters_count": {"min": 1, "max": 120, "default": 20},
     "chapter_length": {"min": 2000, "max": 10000, "default": 4000},
     "images_count": {"min": 1, "max": 10, "default": 4},
 }
