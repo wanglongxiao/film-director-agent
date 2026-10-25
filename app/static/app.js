@@ -105,6 +105,7 @@ async function createSession() {
   ui.messages.replaceChildren();
   showRefEmpty(t("refEmpty"));
   renderProject(data.state);
+  showView(false);
   appendSystem(t("newTaskReady"));
   await loadHistory();
 }
@@ -144,6 +145,7 @@ async function restoreSession(sid) {
   ui.messages.replaceChildren();
   for (const message of data.history) appendMessage(message.role, message.content);
   renderProject(data.state);
+  showView(!!data.state.novel);
   ui.chapterCount.value = data.state.writing.chapters_count;
   ui.chapterLength.value = data.state.writing.chapter_length;
   const images = await fetch(`/api/sessions/${sid}/images`);
