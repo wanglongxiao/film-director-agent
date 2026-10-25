@@ -31,6 +31,9 @@ def plan_novel(state: SessionState, request: NovelRequest) -> Novel:
             "Each synopsis must specify events, character choices, consequences and clues. "
             "Honor the supplied outline, characters, style and rating; ensure enough plot for "
             "the target length, with escalating conflict, a climax and a resolved ending. "
+            "The discussion requirements and chapter map are the main constraints. Preserve "
+            "their core events and character arcs; creatively enrich scenes, motivations, "
+            "dialogue and secondary developments without contradicting those requirements. "
             "The final chapter must resolve all major threads and character arcs. "
             "Write in the session language. Do not generate chapter prose yet.\n\n"
             + CONTENT_POLICY
@@ -81,6 +84,7 @@ def stream_chapter(state: SessionState, chapter: Chapter, should_stop: Callable[
         "previous_chapter_ending": previous[-1].content[-8000:] if previous else "",
         "current_chapter": chapter.model_dump(exclude={"content", "summary"}),
         "target_length": novel.chapter_length,
+        "chapters_count": novel.chapters_count,
         "length_unit": "words" if state.language == "en" else "characters",
         "final_chapter": chapter.number == novel.chapters_count,
     }
@@ -91,6 +95,9 @@ def stream_chapter(state: SessionState, chapter: Chapter, should_stop: Callable[
             "headings, explanations or outline. Expand vivid scenes, sensory detail, "
             "physical action, natural dialogue, interior thoughts and character development. "
             "Follow the plan and established facts, relationships, chronology and clues. "
+            "The discussion is the main source of story requirements, but you may invent "
+            "compatible scene details, dialogue and secondary developments. Never add, "
+            "remove or renumber chapters; the supplied chapter count is fixed. "
             "Do not summarize events instead of dramatizing them. Aim for the requested "
             "length; a brief synopsis is unacceptable. Use the session language and rating. "
             "End this chapter at a deliberate narrative beat. Only the last chapter resolves "

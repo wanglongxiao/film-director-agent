@@ -54,6 +54,18 @@ class Novel(BaseModel):
     )
     chapters: list[Chapter] = Field(default_factory=list)
 
+class WritingSettings(BaseModel):
+    chapters_count: int = Field(
+        default=config.GENERATION_SETTINGS["chapters_count"]["default"],
+        ge=config.GENERATION_SETTINGS["chapters_count"]["min"],
+        le=config.GENERATION_SETTINGS["chapters_count"]["max"],
+    )
+    chapter_length: int = Field(
+        default=config.GENERATION_SETTINGS["chapter_length"]["default"],
+        ge=config.GENERATION_SETTINGS["chapter_length"]["min"],
+        le=config.GENERATION_SETTINGS["chapter_length"]["max"],
+    )
+
 
 class SessionState(BaseModel):
     stage: str = "background"
@@ -69,6 +81,8 @@ class SessionState(BaseModel):
     script_type: str = ""            # film / tv_series / short_drama
     episodes: list[Episode] = Field(default_factory=list)
     novel: Novel | None = None
+    writing: WritingSettings = Field(default_factory=WritingSettings)
+    discussion_chapters: list[Chapter] = Field(default_factory=list)
 
 
 # --- API request / response models ---
@@ -88,7 +102,7 @@ class SessionOut(BaseModel):
     state: SessionState
 
 
-class ChatRequest(BaseModel):
+class ChatRequest(WritingSettings):
     message: str
 
 
@@ -103,17 +117,8 @@ class EpisodeRequest(BaseModel):
     with_images: bool = True
 
 
-class NovelRequest(BaseModel):
-    chapters_count: int = Field(
-        default=config.GENERATION_SETTINGS["chapters_count"]["default"],
-        ge=config.GENERATION_SETTINGS["chapters_count"]["min"],
-        le=config.GENERATION_SETTINGS["chapters_count"]["max"],
-    )
-    chapter_length: int = Field(
-        default=config.GENERATION_SETTINGS["chapter_length"]["default"],
-        ge=config.GENERATION_SETTINGS["chapter_length"]["min"],
-        le=config.GENERATION_SETTINGS["chapter_length"]["max"],
-    )
+class NovelRequest(WritingSettings):
+    pass
 
 
 class EpisodeResponse(BaseModel):

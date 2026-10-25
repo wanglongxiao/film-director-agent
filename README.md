@@ -22,6 +22,7 @@ The video shows an earlier version; the current app also supports full manuscrip
 - Export Word with the title, chapter index, full prose, and an appendix with background, character profiles, and each character's portrait.
 - Generate 4:3 character and scene reference images, with up to 10 concurrent requests and retries for transient failures.
 - Use Simplified Chinese, Traditional Chinese, English, Japanese, or Korean.
+- Record speech in the input bar and convert it to editable text with Seed-Speech. Recording requires microphone permission and HTTPS (localhost also works), and stops after 120 seconds. Recognition results are not sent automatically.
 - Keep browser tasks separate, with completed work archived in local SQLite.
 
 ## Run locally
@@ -55,12 +56,17 @@ Keys and endpoint IDs stay on the server. `.env.example` leaves these fields emp
 | `SCRIPT_SEED_SC_0215_MAX_TOKENS` | `32000` |
 | `LLM_MODEL_IMAGE` | Your Seedream endpoint |
 | `IMAGE_SIZE` | `2048x1536` (4:3) |
+| `SCRIPT_LLM_TEMPERATURE` | `0.9` |
+| `SPEECH_API_KEY` | Private Seed-Speech API key |
+| `SPEECH_APPID` | Your speech application ID |
+| `SPEECH_ASR_URL` | Separate Seed-Speech API domain |
+| `SPEECH_RESOURCE_ID` | `volc.seedasr.auc_turbo` |
 
 The main agent handles discussion and story setup. The selected writer handles chapter plans, prose, summaries, and storyboards. `/api/models` supplies the web model list and configured output budgets. Actual output limits and available content depend on the model provider.
 
 ## BytePlus veFaaS
 
-Use `run_cloud.sh` as the function command (`bash run_cloud.sh`), with Python 3.12, Linux dependencies in `vendor/`, and Linux Node.js in `runtime/bin/` for Word export. Inject only model settings, `ARK_API_KEY`, `WEBUI_CLOUD_MODE=true`, `WEBUI_ACCESS_PASSWORD`, and a random `WEBUI_SESSION_SECRET` through server environment variables. Do not upload `.env`, cloud AK/SK, or local databases.
+Use `run_cloud.sh` as the function command (`bash run_cloud.sh`), with Python 3.12, Linux dependencies in `vendor/`, and Linux Node.js in `runtime/bin/` for Word export. Inject model and speech settings, `ARK_API_KEY`, `WEBUI_CLOUD_MODE=true`, `WEBUI_ACCESS_PASSWORD`, and a random `WEBUI_SESSION_SECRET` through server environment variables. Do not upload `.env`, cloud AK/SK, or local databases. Seed-Speech uses `X-Api-Key` authentication on its own domain; cloud AK/SK are not needed for transcription.
 
 Set both `MinInstance` and `MaxInstance` to `1`. Bind an API gateway route with path prefix `/` and all app HTTP methods. For long generation requests, use a function timeout of 900 seconds and an API gateway route timeout of 900,000 milliseconds.
 
@@ -73,6 +79,8 @@ Cloud pages, static resources, and APIs require login; local mode has no passwor
 3. Generate the full manuscript. Each chapter uses prior chapter facts and the previous chapter's ending for continuity.
 4. Stop when needed, then continue with the same chapter plan and length. A chapter is saved only after reaching at least 80% of its target length without truncation.
 5. Export Word before refreshing or closing the browser. An incomplete book is labeled as an incomplete draft.
+
+Both discussion and prose use the chapter count and length selected on the page. Chapter count is exact; chapter length is an approximate target, with at least 80% required before saving. Discussion saves a structured map containing exactly the selected number of chapters. Prose follows the discussion's background, characters, outline and chapter map while allowing compatible creative details. Changing the page settings before prose starts replaces the discussion map on the next request. Reference-image controls are hidden on mobile devices in both orientations.
 
 Refreshing, closing, or changing language creates a new interactive task. Completed chapters and images remain in `data/script.db`; an archived task can be exported through `/api/sessions/{id}/export/word` when its ID is known. Private runtime data is excluded from Git.
 

@@ -83,6 +83,9 @@ class Persist:
                 conn.execute("ALTER TABLE tasks ADD COLUMN novel TEXT")
             if "text_model" not in columns:
                 conn.execute("ALTER TABLE tasks ADD COLUMN text_model TEXT DEFAULT 'deepseek-1017'")
+            for name in ("writing", "discussion_chapters"):
+                if name not in columns:
+                    conn.execute(f"ALTER TABLE tasks ADD COLUMN {name} TEXT")
             image_columns = {row["name"] for row in conn.execute("PRAGMA table_info(images)")}
             for name, column_type in (("kind", "TEXT"), ("character_name", "TEXT"), ("image_blob", "BLOB")):
                 if name not in image_columns:
@@ -96,8 +99,9 @@ class Persist:
                 """
                 INSERT INTO tasks (
                     task_id, language, stage, genre, tone, background, characters,
-                    outline, style, rating, script_type, episodes, novel, text_model, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    outline, style, rating, script_type, episodes, novel, text_model,
+                    writing, discussion_chapters, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(task_id) DO UPDATE SET
                     language=excluded.language, stage=excluded.stage, genre=excluded.genre,
                     tone=excluded.tone, background=excluded.background,
@@ -106,6 +110,8 @@ class Persist:
                     script_type=excluded.script_type, episodes=excluded.episodes,
                     novel=excluded.novel,
                     text_model=excluded.text_model,
+                    writing=excluded.writing,
+                    discussion_chapters=excluded.discussion_chapters,
                     updated_at=excluded.updated_at
                 """,
                 (
@@ -123,6 +129,8 @@ class Persist:
                     json.dumps([e.model_dump() for e in state.episodes], ensure_ascii=False),
                     state.novel.model_dump_json() if state.novel else None,
                     state.text_model,
+                    state.writing.model_dump_json(),
+                    json.dumps([c.model_dump() for c in state.discussion_chapters], ensure_ascii=False),
                     _now(),
                     _now(),
                 ),

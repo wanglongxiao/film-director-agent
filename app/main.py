@@ -9,11 +9,12 @@ import subprocess
 from contextlib import asynccontextmanager
 from urllib.parse import quote
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from starlette.concurrency import run_in_threadpool
 from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import agent, imagegen, novel, word_export, persist as persist_mod
+from . import agent, imagegen, novel, speech, word_export, persist as persist_mod
 import config
 from .schemas import (
     ChatRequest,
@@ -28,6 +29,7 @@ from .schemas import (
     SessionCreate,
     SessionOut,
     SessionState,
+    WritingSettings,
 )
 from .store import SessionStore
 from .access import CloudAccess
@@ -62,6 +64,34 @@ def public_error(exc: Exception) -> str:
         return "生成失败，请重试。"
     return str(exc)
 
+def apply_writing_settings(state: SessionState, body: WritingSettings) -> SessionState:
+    settings = WritingSettings(
+        chapters_count=body.chapters_count, chapter_length=body.chapter_length
+    )
+    if state.novel and (state.novel.chapters_count, state.novel.chapter_length) != (
+        settings.chapters_count, settings.chapter_length
+    ):
+        raise HTTPException(status_code=409, detail="已有章节规划，请使用原篇幅设置继续，或新建任务。")
+    if state.writing != settings:
+        state.discussion_chapters = []
+    state.writing = settings
+    return state
+
+
+def complete_discussion_plan(state: SessionState, reply: str) -> str:
+    if not state.characters or not state.outline:
+        return reply
+    expected = list(range(1, state.writing.chapters_count + 1))
+    if [c.number for c in state.discussion_chapters] != expected:
+        plan = novel.plan_novel(state, NovelRequest(**state.writing.model_dump()))
+        state.discussion_chapters = plan.chapters
+    # Display the exact structured map even when the conversational reply only
+    # contains a broad outline. This same map is passed to the prose writer.
+    chapter_map = "\n\n".join(
+        f"{c.number}. {c.title}\n{c.synopsis}" for c in state.discussion_chapters
+    )
+    return reply + "\n\n" + chapter_map
+
 
 @app.get("/api/health")
 def health() -> dict:
@@ -70,7 +100,9 @@ def health() -> dict:
 
 @app.get("/api/models")
 def models() -> dict:
-    return {"default": config.DEFAULT_TEXT_MODEL, "generation": config.GENERATION_SETTINGS, "models": [
+    return {"default": config.DEFAULT_TEXT_MODEL, "generation": config.GENERATION_SETTINGS,
+            "speech": {"enabled": bool(config.SPEECH_API_KEY), "max_seconds": config.SPEECH_MAX_SECONDS},
+            "models": [
         {"id": key, "max_tokens": value["max_tokens"]} for key, value in config.CHAT_MODELS.items()
     ]}
 
@@ -110,6 +142,29 @@ def heartbeat(sid: str) -> dict:
     store.touch(sid)
     return {"ok": True}
 
+@app.post("/api/sessions/{sid}/speech")
+async def speech_input(sid: str, request: Request) -> dict:
+    item = store.get(sid)
+    if item is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    if not config.SPEECH_API_KEY:
+        raise HTTPException(status_code=503, detail="speech_unavailable")
+    if request.headers.get("content-type", "").split(";")[0] != "audio/wav":
+        raise HTTPException(status_code=415, detail="speech_invalid_audio")
+    audio = bytearray()
+    async for chunk in request.stream():
+        audio.extend(chunk)
+        if len(audio) > speech.MAX_AUDIO_BYTES:
+            raise HTTPException(status_code=413, detail="speech_too_long")
+    store.touch(sid)
+    try:
+        text = await run_in_threadpool(
+            speech.transcribe, bytes(audio), item["state"].language, sid
+        )
+    except speech.SpeechError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from None
+    return {"text": text}
+
 
 @app.post("/api/sessions/{sid}/chat", response_model=ChatResponse)
 def chat(sid: str, body: ChatRequest) -> ChatResponse:
@@ -118,16 +173,23 @@ def chat(sid: str, body: ChatRequest) -> ChatResponse:
         raise HTTPException(status_code=404, detail="session not found")
     if store.novel_busy(sid):
         raise HTTPException(status_code=409, detail="正文生成中，请先停止生成。")
+    state = apply_writing_settings(item["state"], body)
     try:
-        reply, new_state = agent.run_agent(item["state"], item["history"], body.message)
+        reply, new_state = agent.run_agent(state, item["history"], body.message)
+        if new_state.stage in ("script_type", "episodes") and (
+            not new_state.characters or not new_state.outline
+        ):
+            new_state = agent.backfill_state_from_history(
+                new_state, item["history"] + [
+                    {"role": "user", "content": body.message},
+                    {"role": "assistant", "content": reply},
+                ]
+            )
+        reply = complete_discussion_plan(new_state, reply)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=public_error(exc)) from exc
     store.add_history(sid, "user", body.message)
     store.add_history(sid, "assistant", reply)
-    if new_state.stage in ("script_type", "episodes") and (
-        not new_state.characters or not new_state.outline
-    ):
-        new_state = agent.backfill_state_from_history(new_state, store.get(sid)["history"])
     store.set_state(sid, new_state)
     persist.save_task_state(sid, new_state)
     return ChatResponse(reply=reply, state=new_state)
@@ -146,11 +208,12 @@ def chat_stream(sid: str, body: ChatRequest) -> StreamingResponse:
     if store.novel_busy(sid):
         raise HTTPException(status_code=409, detail="正文生成中，请先停止生成。")
     store.set_cancel(sid, False)
+    state = apply_writing_settings(item["state"], body)
 
     def generate():
         store.touch(sid)
         events = agent.stream_run_agent(
-            item["state"],
+            state,
             item["history"],
             body.message,
             should_stop=lambda: store.is_cancel(sid),
@@ -166,14 +229,21 @@ def chat_stream(sid: str, body: ChatRequest) -> StreamingResponse:
                         yield json.dumps({"type": "interrupted"}, ensure_ascii=False) + "\n"
                         return
                     new_state = ev["state"]
-                    store.add_history(sid, "user", body.message)
-                    store.add_history(sid, "assistant", ev["reply"])
                     if new_state.stage in ("script_type", "episodes") and (
                         not new_state.characters or not new_state.outline
                     ):
                         new_state = agent.backfill_state_from_history(
-                            new_state, store.get(sid)["history"]
+                            new_state, item["history"] + [
+                                {"role": "user", "content": body.message},
+                                {"role": "assistant", "content": ev["reply"]},
+                            ]
                         )
+                    ev["reply"] = complete_discussion_plan(new_state, ev["reply"])
+                    if store.is_cancel(sid) or store.get(sid) is None:
+                        yield json.dumps({"type": "interrupted"}) + "\n"
+                        return
+                    store.add_history(sid, "user", body.message)
+                    store.add_history(sid, "assistant", ev["reply"])
                     store.set_state(sid, new_state)
                     persist.save_task_state(sid, new_state)
                     payload = {
@@ -314,6 +384,7 @@ def generate_novel(sid: str, body: NovelRequest) -> StreamingResponse:
         body.chapters_count, body.chapter_length
     ):
         raise HTTPException(status_code=409, detail="已有章节规划，请使用原篇幅设置继续，或新建任务。")
+    item["state"] = apply_writing_settings(item["state"], body)
     if not store.begin_novel(sid):
         raise HTTPException(status_code=409, detail="正文生成中，请勿重复提交。")
     cancel_event = store.novel_cancel_event(sid)
@@ -390,8 +461,11 @@ def export_word(sid: str) -> Response:
         if row is None:
             raise HTTPException(status_code=404, detail="session not found")
         data = {key: row[key] for key in SessionState.model_fields if key in row}
-        for key in ("characters", "episodes", "novel"):
-            data[key] = json.loads(row[key]) if row.get(key) else ([] if key != "novel" else None)
+        for key in ("characters", "episodes", "novel", "writing", "discussion_chapters"):
+            if row.get(key):
+                data[key] = json.loads(row[key])
+            else:
+                data.pop(key, None)
         state = SessionState.model_validate(data)
     if not (state.novel and any(c.content for c in state.novel.chapters)) and not state.episodes:
         raise HTTPException(status_code=400, detail="请先生成至少一章正文或分镜剧本。")

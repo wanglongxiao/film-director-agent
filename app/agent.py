@@ -6,7 +6,7 @@ import re
 from typing import Callable, Optional
 
 from . import llm
-from .schemas import Character, Episode, SessionState, Storyboard
+from .schemas import Chapter, Character, Episode, SessionState, Storyboard
 
 # Core assistant persona (verbatim from the product spec)
 ASSISTANT_PROMPT = """\
@@ -41,7 +41,7 @@ STAGE_GUIDE = """\
 WORKFLOW STAGES (progress in order; DO NOT skip):
 - "background": Elicit and confirm the script background setting and tone (恐怖/爱情/历史 或更细分主题). Write `background`, `tone`, `genre` into state_update once confirmed. Ask clarifying questions when information is insufficient. Move to "characters" when background+tone are set.
 - "characters": Establish main characters (multiple allowed). Through Q&A refine each character's profile: 成长背景、性格特征，体现主角真实性与人性复杂性. **必须产出至少一个完整角色**：每个 character 对象必须同时包含 name, role, background, personality, arc 五个字段（不得为空）. Always return the FULL characters array in state_update.characters when it changes. Move to "outline" only after at least one full character profile is produced.
-- "outline": **必须生成脚本故事大纲** in state_update.outline (detailed multi-paragraph, based on background+tone+characters). Cover the complete beginning, development, turning points, climax and ending, including resolution of character arcs and major clues. Plan enough story for a 12-chapter, approximately 30,000-character novella unless the user specifies another length. Do not leave it empty. Then move to "script_type".
+- "outline": **必须生成脚本故事大纲** in state_update.outline (detailed multi-paragraph, based on background+tone+characters). Cover the complete beginning, development, turning points, climax and ending, including resolution of character arcs and major clues. Use the exact chapter count and target chapter length in state.writing. Also return state_update.discussion_chapters: exactly that many objects with number, title and synopsis, numbered sequentially from 1. Do not leave it empty. Then move to "script_type".
 - "script_type": Confirm the script's nature: "film" (90-120 min), "tv_series" (18-36 集 × 30-45 min), or "short_drama" (~80-100 集 × 2 min). Also confirm the style ("chinese" = 起承转合 / "hollywood" = 开端-发展-高潮) and the rating ("7+", "12+", "18+"). Write `script_type`, `style`, `rating` into state_update once confirmed. Then move to "episodes".
 - "episodes": The user can click "生成完整正文" / "Generate full manuscript" to plan and write a complete book chapter by chapter, then export Word. Explain that chapter count and target chapter length can be selected in that panel. Backend also supports episode scripts and reference images. Do not claim a book has been generated until it is present in state.novel.
 """
@@ -53,6 +53,14 @@ def _build_system_prompt(state: SessionState) -> str:
             ASSISTANT_PROMPT,
             CONTENT_POLICY,
             STAGE_GUIDE,
+            f"WEB WRITING CONSTRAINTS: exactly {state.writing.chapters_count} chapters, "
+            f"target {state.writing.chapter_length} "
+            f"{'words' if state.language == 'en' else 'characters'} per chapter. "
+            "The web settings take priority over conflicting chapter counts in chat history. "
+            "Discussion establishes the main story requirements and a complete chapter map, "
+            "not full chapter prose. Keep the chapter count exact, while allowing approximate "
+            "chapter lengths. Later prose may creatively expand scenes and dialogue within "
+            "the established background, characters, relationships and major plot.",
             "RESPONSE FORMAT: You MUST reply with a single JSON object only: "
             '{"thought": "<brief writing approach summary, without internal reasoning>", '
             '"reply": "<your message to the user, in the session language>", '
@@ -129,6 +137,9 @@ def _extract_json(text: str) -> Optional[dict]:
 def _apply_state_update(state: SessionState, update: Optional[dict]) -> None:
     if not update:
         return
+    if any(update.get(key, getattr(state, key)) != getattr(state, key)
+           for key in ("background", "characters", "outline")):
+        state.discussion_chapters = []
     for key, value in update.items():
         if not isinstance(value, (str, int, float, bool, list, dict)):
             continue
@@ -137,7 +148,16 @@ def _apply_state_update(state: SessionState, update: Optional[dict]) -> None:
                 Character(**item) if isinstance(item, dict) else Character(name=str(item))
                 for item in value
             ]
-        elif key in ("episodes", "novel", "text_model"):
+        elif key == "discussion_chapters" and isinstance(value, list):
+            try:
+                chapters = [Chapter.model_validate(item) for item in value]
+                if [c.number for c in chapters] == list(range(1, state.writing.chapters_count + 1)):
+                    state.discussion_chapters = [
+                        c.model_copy(update={"content": "", "summary": ""}) for c in chapters
+                    ]
+            except ValueError:
+                pass
+        elif key in ("episodes", "novel", "text_model", "writing"):
             continue  # manuscripts are added via dedicated endpoints
         elif hasattr(state, key):
             setattr(state, key, value)

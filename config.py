@@ -16,6 +16,19 @@ WEBUI_SESSION_SECRET = os.getenv("WEBUI_SESSION_SECRET", "")
 if WEBUI_CLOUD_MODE and not (WEBUI_ACCESS_PASSWORD and WEBUI_SESSION_SECRET):
     raise RuntimeError("云端必须配置准入密码和会话签名密钥。")
 
+SCRIPT_LLM_TEMPERATURE = float(os.getenv("SCRIPT_LLM_TEMPERATURE", "0.9"))
+if not 0 <= SCRIPT_LLM_TEMPERATURE <= 2:
+    raise RuntimeError("SCRIPT_LLM_TEMPERATURE must be between 0 and 2.")
+
+SPEECH_APPID = os.getenv("SPEECH_APPID", "")
+SPEECH_API_KEY = os.getenv("SPEECH_API_KEY", "")
+SPEECH_ASR_URL = os.getenv(
+    "SPEECH_ASR_URL",
+    "https://voice.ap-southeast-1.bytepluses.com/api/v3/auc/bigmodel/recognize/flash",
+)
+SPEECH_RESOURCE_ID = os.getenv("SPEECH_RESOURCE_ID", "volc.seedasr.auc_turbo")
+SPEECH_MAX_SECONDS = 120
+
 # Base URL for model invocation
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://ark.ap-southeast.bytepluses.com/api/v3")
 

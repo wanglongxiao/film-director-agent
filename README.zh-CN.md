@@ -22,6 +22,7 @@
 - 导出 Word：剧本题目、章节索引、小说正文、附录（背景设定、人物侧写及对应角色图片）。
 - 生成 4:3 角色定妆图与场景参考图，最大并发 10，支持临时错误重试。
 - 支持简体中文、繁体中文、英文、日文和韩文。
+- 底部输入栏支持录音，通过 Seed-Speech 转为可编辑文字，不自动发送。需允许麦克风权限并使用 HTTPS（localhost 也可），单次录音最长 120 秒。
 - 每个浏览器窗口独立任务，完成内容保存在本地 SQLite。
 
 ## 本地启动
@@ -55,12 +56,17 @@ uv run --with-requirements requirements.txt uvicorn app.main:app --host 127.0.0.
 | `SCRIPT_SEED_SC_0215_MAX_TOKENS` | `32000` |
 | `LLM_MODEL_IMAGE` | 自己账户的 Seedream 端点 |
 | `IMAGE_SIZE` | `2048x1536`（4:3） |
+| `SCRIPT_LLM_TEMPERATURE` | `0.9` |
+| `SPEECH_API_KEY` | Seed-Speech 私有 API Key |
+| `SPEECH_APPID` | 自己账户的语音应用 ID |
+| `SPEECH_ASR_URL` | 独立的 Seed-Speech API 域名 |
+| `SPEECH_RESOURCE_ID` | `volc.seedasr.auc_turbo` |
 
 主 Agent 负责讨论、背景、人物侧写、大纲和信息补全；所选剧本模型负责章节规划、正文、连续性摘要和分镜。网页通过 `/api/models` 自动读取模型名称及配置上限。实际输出能力、请求上限和内容限制以模型服务商为准。
 
 ## BytePlus veFaaS 部署
 
-函数使用 Python 3.12，启动命令为 `bash run_cloud.sh`；Linux Python 依赖放在 `vendor/`，Word 导出所需的 Linux Node.js 放在 `runtime/bin/`。通过服务端环境变量注入模型参数、`ARK_API_KEY`、`WEBUI_CLOUD_MODE=true`、`WEBUI_ACCESS_PASSWORD` 及随机生成的 `WEBUI_SESSION_SECRET`。部署包不包含 `.env`、云端 AK/SK 和本地数据库。
+函数使用 Python 3.12，启动命令为 `bash run_cloud.sh`；Linux Python 依赖放在 `vendor/`，Word 导出所需的 Linux Node.js 放在 `runtime/bin/`。通过服务端环境变量注入模型和语音参数、`ARK_API_KEY`、`WEBUI_CLOUD_MODE=true`、`WEBUI_ACCESS_PASSWORD` 及随机生成的 `WEBUI_SESSION_SECRET`。部署包不包含 `.env`、云端 AK/SK 和本地数据库。Seed-Speech 使用独立域名及 `X-Api-Key` 鉴权，转写不需要云端 AK/SK。
 
 `MinInstance` 和 `MaxInstance` 均设为 `1`。API 网关路由匹配 `/` 前缀并允许应用使用的 HTTP 方法。长文本生成使用函数超时 900 秒、API 网关路由超时 900,000 毫秒。
 
@@ -73,6 +79,8 @@ uv run --with-requirements requirements.txt uvicorn app.main:app --host 127.0.0.
 3. 生成完整正文，各章参考已完成章节的事实摘要与上一章结尾，保持叙事连贯。
 4. 可停止后继续；使用同一章节规划和篇幅设置。章节达到目标篇幅至少 80% 且未被截断后才保存。
 5. 刷新或关闭前导出 Word；未完成作品标注“未完成稿”。
+
+创作讨论与小说正文均使用网页中的章数和每章字数。章数严格遵守，字数为近似目标，至少达到 80% 才保存。讨论会保存包含指定章数的结构化章节计划；正文以讨论中的背景、人物、大纲和章节计划为主要要求，允许兼容这些设定的细节创意发挥。正文开始前修改篇幅时，下次请求会重新生成讨论章节计划。移动设备竖屏和横屏均隐藏参考图模块。
 
 刷新、关闭或切换语言会新建交互任务。完成章节及图片保存在 `data/script.db`；知道原任务 ID 时，可通过 `/api/sessions/{id}/export/word` 导出归档。私人运行数据不提交到 Git。
 

@@ -189,6 +189,12 @@ button.ghost:hover { background: var(--panel-2); }
   padding: 0 12px;
   font: inherit;
 }
+.composer-input { flex: 1; min-width: 0; }
+.composer-input input[type="text"] { width: 100%; min-width: 0; }
+#speech-status { font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+#speech-status:not(:empty) { margin-top: 5px; }
+#record { min-height: 40px; white-space: nowrap; }
+#record[aria-pressed="true"] { background: var(--danger); border-color: var(--danger); }
 .composer input[type="text"]:focus { outline: none; border-color: var(--accent); }
 .composer-actions { display: flex; flex-direction: row; align-items: center; gap: 8px; }
 
@@ -420,4 +426,11 @@ button.ghost:hover { background: var(--panel-2); }
   .messages, .manuscript { min-height: 160px; max-height: 60dvh; flex: 1 0 auto; }
   .side-scroll { max-height: 320px; }
   .composer { flex-shrink: 0; }
+}
+
+/* Phones and touch tablets use the entire width for writing in both orientations. */
+@media (max-width: 950px), (pointer: coarse) {
+  .side-panel { display: none; }
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .chat-panel { border-right: 0; }
 }

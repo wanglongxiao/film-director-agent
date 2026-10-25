@@ -24,6 +24,8 @@ const ui = {
   viewChat: document.getElementById("view-chat"),
   viewNovel: document.getElementById("view-novel"),
   textModel: document.getElementById("text-model"),
+  record: document.getElementById("record"),
+  speechStatus: document.getElementById("speech-status"),
 };
 
 const app = {
@@ -40,8 +42,14 @@ const app = {
   textModel: "deepseek-1017",
   modelBusy: false,
   modelOptions: {},
+  speechBusy: false,
 };
 
+const speechInput = window.createSpeechInput({
+  button: ui.record, input: ui.input, status: ui.speechStatus,
+  getSession: () => app.sid,
+  onBusyChange: busy => { app.speechBusy = busy; updateNovelControls(); },
+});
 /* ------------------------------------------------------------------ */
 /* Session / task lifecycle                                            */
 /* ------------------------------------------------------------------ */
@@ -70,6 +78,7 @@ async function loadModels() {
   }));
   app.textModel = data.default;
   ui.textModel.value = app.textModel;
+  speechInput.configure(data.speech);
 }
 
 async function createSession() {
@@ -153,7 +162,7 @@ function setButtons(mode) {
   ui.newTask.disabled = mode === "stop";
   ui.refGen.disabled = mode === "stop" || app.refBusy;
   ui.novelGen.disabled = mode === "stop" || !app.state?.characters?.length || !app.state?.outline;
-  if (mode === "send") updateNovelControls();
+  updateNovelControls();
 }
 
 function handleEvent(ev, els) {
@@ -199,7 +208,12 @@ function rollback(msgEl) {
 
 async function sendMessage() {
   const text = ui.input.value.trim();
-  if (!text || !app.sid || app.generating || app.modelBusy) return;
+  if (!text || !app.sid || app.generating || app.modelBusy || app.speechBusy) return;
+  if (!ui.chapterCount.reportValidity() || !ui.chapterLength.reportValidity()) return;
+  const writing = {
+    chapters_count: Number(ui.chapterCount.value),
+    chapter_length: Number(ui.chapterLength.value),
+  };
 
   ui.input.value = "";
   appendMessage("user", text);
@@ -224,7 +238,7 @@ async function sendMessage() {
     const res = await fetch(`/api/sessions/${app.sid}/chat/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text }),
+      body: JSON.stringify({ message: text, ...writing }),
       signal: app.aborter.signal,
     });
     if (!res.ok || !res.body) throw new Error(await responseError(res));
@@ -321,11 +335,11 @@ function progressText() {
 function updateNovelControls() {
   const novel = app.state?.novel;
   const completed = novel?.chapters.filter(c => c.content).length || 0;
-  ui.textModel.disabled = app.generating || app.refBusy || app.modelBusy;
-  ui.send.disabled = app.modelBusy;
-  ui.lang.disabled = app.generating || app.refBusy || app.modelBusy;
-  ui.newTask.disabled = app.generating || app.refBusy || app.modelBusy;
-  ui.novelGen.disabled = app.generating || app.refBusy || app.modelBusy
+  ui.textModel.disabled = app.generating || app.refBusy || app.modelBusy || app.speechBusy;
+  ui.send.disabled = app.modelBusy || app.speechBusy;
+  ui.lang.disabled = app.generating || app.refBusy || app.modelBusy || app.speechBusy;
+  ui.newTask.disabled = app.generating || app.refBusy || app.modelBusy || app.speechBusy;
+  ui.novelGen.disabled = app.generating || app.refBusy || app.modelBusy || app.speechBusy
     || !app.state?.characters?.length || !app.state?.outline
     || (novel && completed === novel.chapters_count);
   ui.novelGen.textContent = t(novel ? "resumeNovel" : "generateNovel");
@@ -336,6 +350,7 @@ function updateNovelControls() {
     ui.chapterLength.value = novel.chapter_length;
   }
   ui.wordExport.disabled = app.exportBusy || !(completed || app.state?.episodes?.length);
+  speechInput.refresh(app.generating || app.refBusy || app.modelBusy);
 }
 
 function renderManuscript() {
@@ -360,7 +375,7 @@ const statusObserver = new MutationObserver(() => {
 statusObserver.observe(ui.novelStatus, { childList: true, characterData: true, subtree: true });
 
 async function selectTextModel() {
-  if (!app.sid || app.generating || app.refBusy || app.modelBusy) return;
+  if (!app.sid || app.generating || app.refBusy || app.modelBusy || app.speechBusy) return;
   const selected = ui.textModel.value;
   app.modelBusy = true;
   updateNovelControls();
@@ -413,7 +428,7 @@ async function responseError(res) {
 }
 
 async function generateNovel() {
-  if (!app.sid || app.generating || app.refBusy || app.modelBusy) return;
+  if (!app.sid || app.generating || app.refBusy || app.modelBusy || app.speechBusy) return;
   if (!ui.chapterCount.checkValidity() || !ui.chapterLength.checkValidity()) {
     ui.chapterCount.reportValidity();
     ui.chapterLength.reportValidity();
@@ -562,7 +577,7 @@ function showRefEmpty(msg) {
 }
 
 async function generateReferences() {
-  if (!app.sid || app.refBusy || app.generating || app.modelBusy) return;
+  if (!app.sid || app.refBusy || app.generating || app.modelBusy || app.speechBusy) return;
   // Prerequisite (characters + outline) is validated server-side: the backend
   // will also try to recover them from chat history before giving up. So we
   // send the request and handle a 400 (missing_prerequisites) response here.
@@ -636,6 +651,7 @@ ui.messages.addEventListener("click", (e) => {
     app.language = ui.lang.value;
     localStorage.setItem("msa-lang", app.language);
     applyI18n(app.language);
+    speechInput.refresh(app.generating || app.refBusy || app.modelBusy);
     for (const option of ui.textModel.options) {
       if (app.modelOptions[option.value]) {
         option.textContent = t("tokenBudget", app.modelOptions[option.value]);

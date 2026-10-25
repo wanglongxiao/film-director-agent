@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title data-i18n="title">Movie Script Agent</title>
-  <link rel="stylesheet" href="/style.css?v=20261025-3" />
+  <link rel="stylesheet" href="/style.css?v=20261025-4" />
 </head>
 <body>
   <header class="topbar">
@@ -39,7 +39,7 @@
           <label><span data-i18n="chapterCountShort">章数</span>
             <input id="chapter-count" type="number" required data-i18n-attr="aria-label:chapterCount" /></label>
           <label><span data-i18n="chapterLengthShort">字/章</span>
-            <input id="chapter-length" type="number" required step="100" data-i18n-attr="aria-label:chapterLength" /></label>
+            <input id="chapter-length" type="number" required data-i18n-attr="aria-label:chapterLength" /></label>
           <button id="novel-gen" class="primary" disabled data-i18n="generateNovel">生成完整正文</button>
           <button id="word-export" class="secondary" disabled data-i18n="exportWord">导出 Word</button>
         </div>
@@ -51,8 +51,12 @@
         <div class="empty" data-i18n="novelEmpty">章节目录和完整正文将显示在这里。</div>
       </div>
       <div class="composer">
-        <input id="input" type="text" data-i18n-attr="placeholder:inputPlaceholder" placeholder="Describe your script idea…" autocomplete="off" />
+        <div class="composer-input">
+          <input id="input" type="text" data-i18n-attr="placeholder:inputPlaceholder" placeholder="Describe your script idea…" autocomplete="off" />
+          <div id="speech-status" class="muted" role="status" aria-live="polite"></div>
+        </div>
         <div class="composer-actions">
+          <button id="record" class="secondary" type="button" disabled aria-pressed="false" data-i18n="recordAudio">录音</button>
           <button id="send" class="primary" data-i18n="send">Send</button>
           <button id="stop" class="danger hidden" data-i18n="stop">Stop</button>
         </div>
@@ -75,7 +79,8 @@
     </aside>
   </main>
 
-  <script src="/i18n.js?v=20261025-3"></script>
-  <script src="/app.js?v=20261025-3"></script>
+  <script src="/i18n.js?v=20261025-4"></script>
+  <script src="/speech-input.js?v=20261025-4"></script>
+  <script src="/app.js?v=20261025-4"></script>
 </body>
 </html>

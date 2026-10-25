@@ -29,7 +29,7 @@ def get_client() -> OpenAI:
 
 def chat(
     messages: list[dict],
-    temperature: float = 0.7,
+    temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
     model_key: Optional[str] = None,
 ) -> str:
@@ -39,7 +39,7 @@ def chat(
     kwargs: dict = {
         "model": settings["endpoint"],
         "messages": messages,
-        "temperature": temperature,
+        "temperature": config.SCRIPT_LLM_TEMPERATURE if temperature is None else temperature,
     }
     if model_key is None or model_key.startswith("deepseek-"):
         kwargs["extra_body"] = dict(_REASONING)
@@ -52,7 +52,7 @@ def chat(
 
 def chat_stream(
     messages: list[dict],
-    temperature: float = 0.7,
+    temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
     model_key: Optional[str] = None,
 ) -> Iterator[str]:
@@ -62,7 +62,7 @@ def chat_stream(
     kwargs: dict = {
         "model": settings["endpoint"],
         "messages": messages,
-        "temperature": temperature,
+        "temperature": config.SCRIPT_LLM_TEMPERATURE if temperature is None else temperature,
         "stream": True,
     }
     if model_key is None or model_key.startswith("deepseek-"):
