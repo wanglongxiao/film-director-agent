@@ -21,6 +21,20 @@ def story_context(state: SessionState) -> dict:
     return state.model_dump(exclude={"novel", "episodes", "stage"})
 
 
+def novel_from_discussion(state: SessionState, request: NovelRequest) -> Novel | None:
+    """Reuse the exact accepted chapter map without another planning LLM call."""
+    if [c.number for c in state.discussion_chapters] != list(range(1, request.chapters_count + 1)):
+        return None
+    titles = {"zh-CN": "故事正文", "zh-TW": "故事正文", "en": "Story manuscript",
+              "ja": "物語本文", "ko": "이야기 본문"}
+    return Novel(
+        title=titles.get(state.language, "Story manuscript"),
+        chapters_count=request.chapters_count, chapter_length=request.chapter_length,
+        chapters=[c.model_copy(update={"content": "", "summary": ""}, deep=True)
+                  for c in state.discussion_chapters],
+    )
+
+
 def plan_novel(state: SessionState, request: NovelRequest, deadline=None) -> Novel:
     messages = [
         {"role": "system", "content": (

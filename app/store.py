@@ -75,6 +75,7 @@ class SessionStore:
             token = uuid.uuid4().hex
             doc["job"] = {"token": token, "operation": operation, "expires_at": time.time() + 840}
             doc["status"] = "running"
+            doc["last_error"] = None
             item["etag"] = self.storage.save(doc, etag)
             item["doc"] = doc
             item["state"] = SessionState.model_validate(doc["state"])
@@ -92,7 +93,9 @@ class SessionStore:
                 doc["job"] = None
                 book = item["state"].novel
                 done = book and all(c.content for c in book.chapters)
-                doc["status"] = "completed" if done else ("queued" if doc["auto_run"] else "idle")
+                doc["status"] = "completed" if done else (
+                    "failed" if doc.get("last_error") else ("queued" if doc["auto_run"] else "idle")
+                )
                 try:
                     self.flush(sid)
                 except Conflict:
@@ -105,6 +108,12 @@ class SessionStore:
             self._sessions[sid]["doc"]["auto_run"] = value
             self.flush(sid)
 
+    def fail_novel(self, sid: str, error: str):
+        with self._lock:
+            self._sessions[sid]["doc"]["auto_run"] = False
+            self._sessions[sid]["doc"]["last_error"] = error
+            self.flush(sid)
+
     def public(self, sid: str) -> dict:
         with self._lock:
             item = self._sessions[sid]
@@ -112,7 +121,7 @@ class SessionStore:
             job = doc.get("job")
             return {"session_id": sid, "state": item["state"], "history": item["history"],
                     "auto_run": doc["auto_run"], "busy": bool(job and job["expires_at"] > time.time()),
-                    "status": doc.get("status", "idle")}
+                    "status": doc.get("status", "idle"), "last_error": doc.get("last_error")}
 
     def get(self, sid: str) -> Optional[dict]:
         with self._lock:

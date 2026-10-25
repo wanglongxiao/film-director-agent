@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import time
+import logging
 from contextlib import asynccontextmanager
 from urllib.parse import quote
 
@@ -34,11 +35,13 @@ from .schemas import (
 )
 from .store import SessionStore
 from .access import CloudAccess, BrowserTasks
+from .streaming import with_heartbeats
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
 store = SessionStore()
 persist = persist_mod.Persist(store)
+logger = logging.getLogger("uvicorn.error")
 
 
 async def _sweep_loop() -> None:
@@ -426,20 +429,36 @@ def generate_novel(sid: str, body: NovelRequest, request: Request) -> StreamingR
         return json.dumps(event, ensure_ascii=False) + "\n"
 
     def stopped():
-        return not store.exists(sid) or cancel_event.is_set() or time.monotonic() > deadline
+        if time.monotonic() > deadline:
+            raise TimeoutError("Chapter request time limit reached.")
+        return not store.exists(sid) or cancel_event.is_set()
 
     def save(state):
         return store.save_novel_state(sid, state, cancel_event, persist.save_task_state)
 
     def generate():
         state = item["state"]
+        began = time.monotonic()
+        phase = "plan"
+        chapter_number = 0
+        logger.info("novel request_start sid=%s model=%s chapters=%s saved=%s",
+                    sid, state.text_model, body.chapters_count,
+                    sum(bool(c.content) for c in state.novel.chapters) if state.novel else 0)
         try:
             if state.novel is None:
-                yield encode({"type": "planning"})
-                state.novel = novel.plan_novel(state, body, deadline=deadline)
+                state.novel = novel.novel_from_discussion(state, body)
+                if state.novel is None:
+                    logger.info("novel plan_source sid=%s source=model", sid)
+                    yield encode({"type": "planning"})
+                    state.novel = novel.plan_novel(state, body, deadline=deadline)
+                else:
+                    logger.info("novel plan_source sid=%s source=discussion count=%s",
+                                sid, len(state.novel.chapters))
                 if not save(state):
                     yield encode({"type": "interrupted"})
                     return
+                yield encode({"type": "plan", "state": state.model_dump(mode="json")})
+                logger.info("novel plan_saved sid=%s elapsed=%.1f", sid, time.monotonic() - began)
                 # Planning is a separate request, too. It cannot eat into the
                 # time available for writing the first chapter.
                 yield encode({"type": "next", "state": state.model_dump(mode="json")})
@@ -451,6 +470,9 @@ def generate_novel(sid: str, body: NovelRequest, request: Request) -> StreamingR
                     return
                 if chapter.content:
                     continue
+                phase = "chapter"
+                chapter_number = chapter.number
+                logger.info("novel chapter_start sid=%s number=%s", sid, chapter.number)
                 yield encode({"type": "chapter_start", "number": chapter.number, "title": chapter.title})
                 completed = False
                 for ev in novel.stream_chapter(state, chapter, stopped, deadline=deadline):
@@ -463,6 +485,10 @@ def generate_novel(sid: str, body: NovelRequest, request: Request) -> StreamingR
                             yield encode({"type": "interrupted"})
                             return
                         completed = True
+                        logger.info("novel chapter_saved sid=%s number=%s length=%s elapsed=%.1f",
+                                    sid, chapter.number,
+                                    novel.manuscript_length(chapter.content, state.language),
+                                    time.monotonic() - began)
                         yield encode({
                             "type": "chapter_done",
                             "chapter": chapter.model_dump(mode="json"),
@@ -471,7 +497,6 @@ def generate_novel(sid: str, body: NovelRequest, request: Request) -> StreamingR
                     else:
                         yield encode(ev)
                 if not completed:
-                    store.set_auto_run(sid, False)
                     yield encode({"type": "interrupted"})
                     return
                 # Exactly one completed chapter is committed per request.
@@ -484,13 +509,24 @@ def generate_novel(sid: str, body: NovelRequest, request: Request) -> StreamingR
         except GeneratorExit:
             raise
         except Exception as exc:
-            store.set_auto_run(sid, False)
-            yield encode({"type": "error", "message": public_error(exc)})
+            error = "generation_timeout" if "Timeout" in type(exc).__name__ else "generation_failed"
+            logger.error("novel request_failed sid=%s phase=%s number=%s error_type=%s elapsed=%.1f",
+                         sid, phase, chapter_number, type(exc).__name__, time.monotonic() - began)
+            try:
+                store.fail_novel(sid, error)
+            except Exception as save_exc:
+                logger.error("novel error_save_failed sid=%s error_type=%s", sid, type(save_exc).__name__)
+            yield encode({"type": "error", "message": error})
         finally:
+            logger.info("novel request_end sid=%s phase=%s number=%s elapsed=%.1f",
+                        sid, phase, chapter_number, time.monotonic() - began)
             store.end_novel(sid, cancel_event)
 
     return StreamingResponse(
-        generate(), media_type="application/x-ndjson",
+        with_heartbeats(
+            generate(), cancel_event.set,
+            lambda elapsed: logger.info("novel heartbeat sid=%s elapsed=%s", sid, elapsed),
+        ), media_type="application/x-ndjson",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 

@@ -429,6 +429,22 @@ for (const [language, strings] of Object.entries(historyStrings)) {
   Object.assign(window.I18N[language], Object.fromEntries(historyKeys.map((key, i) => [key, strings[i]])));
 }
 
+const generationStatusStrings = {
+  "zh-CN": {generationAlive: s => `请求仍在运行 · ${s} 秒`,
+    generationTimeout: "本章请求超时，已保存章节保留，请点击继续生成。", taskStatus_failed: "生成失败"},
+  "zh-TW": {generationAlive: s => `請求仍在執行 · ${s} 秒`,
+    generationTimeout: "本章請求逾時，已儲存章節保留，請點擊繼續生成。", taskStatus_failed: "生成失敗"},
+  en: {generationAlive: s => `Request active · ${s}s`,
+    generationTimeout: "This chapter timed out. Saved chapters are retained. Click Continue to retry.", taskStatus_failed: "Failed"},
+  ja: {generationAlive: s => `処理中 · ${s}秒`,
+    generationTimeout: "この章はタイムアウトしました。保存済みの章は保持されています。続行してください。", taskStatus_failed: "生成失敗"},
+  ko: {generationAlive: s => `요청 실행 중 · ${s}초`,
+    generationTimeout: "이 장의 요청 시간이 초과되었습니다. 저장된 장은 유지됩니다. 계속을 눌러 재시도하세요.", taskStatus_failed: "생성 실패"},
+};
+for (const [language, strings] of Object.entries(generationStatusStrings)) {
+  Object.assign(window.I18N[language], strings);
+}
+
 window.t = function t(key, arg) {
   const lang = window.__lang || "zh-CN";
   const dict = window.I18N[lang] || window.I18N["en"];

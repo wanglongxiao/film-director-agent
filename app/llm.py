@@ -30,7 +30,7 @@ def get_client(deadline: float | None = None) -> OpenAI:
         if remaining <= 5:
             raise TimeoutError("Chapter request time limit reached.")
         return _client.with_options(
-            timeout=min(60, remaining - 5),
+            timeout=remaining - 5,
             max_retries=0,
         )
     return _client
@@ -82,6 +82,8 @@ def chat_stream(
     stream = get_client(deadline).chat.completions.create(**kwargs)
     try:
         for chunk in stream:
+            if deadline is not None and time.monotonic() >= deadline - 5:
+                raise TimeoutError("Chapter request time limit reached.")
             if not chunk.choices:
                 continue
             delta = chunk.choices[0].delta

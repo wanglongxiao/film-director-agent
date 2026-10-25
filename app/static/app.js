@@ -414,7 +414,9 @@ function updateNovelControls() {
 }
 
 function renderManuscript() {
-  const novel = app.state?.novel;
+  const novel = app.state?.novel || (app.state?.discussion_chapters?.length ? {
+    title: t("manuscript"), chapters: app.state.discussion_chapters,
+  } : null);
   if (!novel) {
     ui.manuscript.innerHTML = `<div class="empty">${esc(t("novelEmpty"))}</div>`;
   } else {
@@ -458,6 +460,8 @@ async function selectTextModel() {
 
 function localizedError(message, status) {
   const messages = {
+    "generation_timeout": "generationTimeout",
+    "generation_failed": "genericFail",
     "session not found": "taskMissing",
     "missing_prerequisites": "needPrereq",
     "请先完成角色侧写和故事大纲。": "needPrereq",
@@ -502,6 +506,7 @@ async function generateNovel(resumeExisting = false) {
   setButtons("stop");
   updateNovelControls();
   showView(true);
+  ui.novelStatus.textContent = t("novelPlanning");
   let completedStream = false;
   let status = "";
   let more = true;
@@ -516,6 +521,7 @@ async function generateNovel(resumeExisting = false) {
     if (!current.ok) throw new Error(await responseError(current));
     const snapshot = await current.json();
     if (snapshot.busy) {
+      renderProject(snapshot.state);
       ui.novelStatus.textContent = t("waitingChapter");
       await pause(3000, app.aborter.signal);
       more = true;
@@ -542,6 +548,11 @@ async function generateNovel(resumeExisting = false) {
     const decoder = new TextDecoder();
     let buffer = "";
     const handle = ev => {
+      if (ev.type === "heartbeat") {
+        const writing = ui.manuscript.querySelector(".chapter.writing");
+        ui.novelStatus.textContent = `${progressText()} · ${writing
+          ? t("novelWriting", Number(writing.id.replace("chapter-", ""))) : t("novelPlanning")} · ${t("generationAlive", ev.elapsed_seconds)}`;
+      }
       if (ev.type === "planning") ui.novelStatus.textContent = t("novelPlanning");
       if (ev.type === "plan") {
         renderProject(ev.state);
@@ -576,7 +587,7 @@ async function generateNovel(resumeExisting = false) {
         status = t("novelFinished");
       }
       if (ev.type === "next") {
-        app.state = ev.state;
+        renderProject(ev.state);
         completedStream = true;
         more = true;
       }
