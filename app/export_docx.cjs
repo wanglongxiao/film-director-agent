@@ -3,6 +3,7 @@
 const {
   Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType,
   Footer, PageNumber, ImageRun,
+  Table, TableRow, TableCell, WidthType, HeightRule, VerticalAlign, BorderStyle,
 } = require("docx");
 
 const labels = {
@@ -28,43 +29,36 @@ async function build(state) {
   const finished = novel ? novel.chapters.filter(c => c.content) : [];
   const title = state.title || (novel ? novel.title : state.episodes?.[0]?.title) || l[7];
   const portraits = new Map((state.character_images || []).map(im => [im.character_name, im]));
-  const children = [
-    new Paragraph({ text: title, heading: HeadingLevel.TITLE, alignment: AlignmentType.CENTER }),
-    new Paragraph({ text: l[0], alignment: AlignmentType.CENTER }),
-  ];
-  if (novel && finished.length !== novel.chapters_count) {
-    children.push(new Paragraph({
-      text: `${l[8]} · ${finished.length} / ${novel.chapters_count}`,
-      alignment: AlignmentType.CENTER,
-    }));
-  }
-  if (finished.length) {
-    children.push(heading(l[1], HeadingLevel.HEADING_1, true));
-    for (const c of finished) children.push(...paragraphs(`${c.number}. ${c.title}`, false));
-    children.push(heading(l[2], HeadingLevel.HEADING_1, true));
-    for (const [i, c] of finished.entries()) {
-      children.push(heading(`${c.number}. ${c.title}`, HeadingLevel.HEADING_2, i > 0));
-      children.push(...paragraphs(c.content));
-    }
-  } else if (state.episodes?.length) {
-    children.push(heading(l[1], HeadingLevel.HEADING_1, true));
-    for (const ep of state.episodes) children.push(...paragraphs(`${ep.number}. ${ep.title}`, false));
-    children.push(heading(l[2], HeadingLevel.HEADING_1, true));
-    for (const [i, ep] of state.episodes.entries()) {
-      children.push(heading(`${ep.number}. ${ep.title}`, HeadingLevel.HEADING_2, i > 0));
-      for (const sb of ep.storyboards) {
-        for (const text of [sb.scene, sb.shot, sb.dialogue]) children.push(...paragraphs(text));
-      }
-    }
-  }
-  children.push(heading(l[3], HeadingLevel.HEADING_1, true));
-  children.push(heading(l[4], HeadingLevel.HEADING_2));
+  const border = { style: BorderStyle.NONE, size: 0, color: "FFFFFF" };
+  const borders = Object.fromEntries(
+    ["top", "bottom", "left", "right", "insideHorizontal", "insideVertical"].map(key => [key, border]),
+  );
+  // One borderless page-height cell centers the title in both directions.
+  // Reserve space for Word's required paragraph following the table.
+  const children = [new Table({
+    width: { size: 9026, type: WidthType.DXA },
+    columnWidths: [9026], borders,
+    rows: [new TableRow({
+      cantSplit: true, height: { value: 13478, rule: HeightRule.EXACT },
+      children: [new TableCell({
+        width: { size: 9026, type: WidthType.DXA }, borders,
+        margins: { top: 0, bottom: 0, left: 0, right: 0 },
+        verticalAlign: VerticalAlign.CENTER,
+        children: [new Paragraph({
+          text: title, heading: HeadingLevel.TITLE, alignment: AlignmentType.CENTER,
+          spacing: { before: 0, after: 0 },
+        })],
+      })],
+    })],
+  }), new Paragraph({ spacing: { before: 0, after: 0, line: 20 },
+    children: [new TextRun({ text: "", size: 2 })] })];
+  children.push(heading(l[4], HeadingLevel.HEADING_1, true));
   children.push(...paragraphs(state.background));
   children.push(...paragraphs(
     [state.genre, state.tone, state.script_type, state.style, state.rating].filter(Boolean).join(" · "),
     false,
   ));
-  children.push(heading(l[5], HeadingLevel.HEADING_2));
+  children.push(heading(l[5], HeadingLevel.HEADING_1, true));
   for (const c of state.characters || []) {
     children.push(heading(`${c.name} · ${c.role}`, HeadingLevel.HEADING_3));
     for (const text of [c.background, c.personality, c.arc]) children.push(...paragraphs(text));
@@ -81,6 +75,27 @@ async function build(state) {
       }));
     }
   }
+  const indexed = finished.length ? finished : (state.episodes || []);
+  children.push(heading(l[1], HeadingLevel.HEADING_1, true));
+  if (novel && finished.length !== novel.chapters_count) {
+    children.push(...paragraphs(`${l[8]} · ${finished.length} / ${novel.chapters_count}`, false));
+  }
+  for (const chapter of indexed) {
+    children.push(...paragraphs(`${chapter.number}. ${chapter.title}`, false));
+  }
+  if (finished.length) {
+    for (const chapter of finished) {
+      children.push(heading(`${chapter.number}. ${chapter.title}`, HeadingLevel.HEADING_2, true));
+      children.push(...paragraphs(chapter.content));
+    }
+  } else {
+    for (const episode of state.episodes || []) {
+      children.push(heading(`${episode.number}. ${episode.title}`, HeadingLevel.HEADING_2, true));
+      for (const sb of episode.storyboards) {
+        for (const text of [sb.scene, sb.shot, sb.dialogue]) children.push(...paragraphs(text));
+      }
+    }
+  }
   const doc = new Document({
     title,
     creator: "Movie Script Agent",
@@ -92,7 +107,8 @@ async function build(state) {
         ...[1, 2, 3].map(n => ({
           id: `Heading${n}`, name: `Heading ${n}`, basedOn: "Normal", next: "Normal",
           quickFormat: true, run: { font: fonts, size: [32, 28, 26][n - 1], bold: true },
-          paragraph: { outlineLevel: n - 1, keepNext: true, spacing: { before: 240, after: 200 } },
+          paragraph: { outlineLevel: n - 1, keepNext: false, keepLines: false,
+            spacing: { before: 240, after: 200 } },
         })),
       ],
     },

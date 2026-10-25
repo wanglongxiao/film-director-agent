@@ -20,7 +20,7 @@ The video shows an earlier version; the current app also supports full manuscrip
 - Set a distinct work title during discussion; use it for the manuscript, history and Word export. Older untitled scripts recover a name from their saved discussion or story details without changing chapters.
 - Choose `deepseek-1017` (default) or `seed-sc-0215` for writing, independently of the main agent.
 - Plan 1–120 chapters, then automatically write one chapter per HTTP request. Each chapter is saved before the browser requests the next.
-- Export Word with the title, chapter index, full prose, and an appendix with background, character profiles, and each character's portrait.
+- Export Word in this order: centered title cover, background, character profiles with portraits, chapter index, then full prose. Each part and each chapter starts on a new page.
 - Generate 4:3 character and scene reference images, with up to 10 concurrent requests and retries for transient failures.
 - Use Simplified Chinese, Traditional Chinese, English, Japanese, or Korean.
 - Record speech in the input bar and convert it to editable text with Seed-Speech. Recording requires microphone permission and HTTPS (localhost also works), and stops after 120 seconds. Text is inserted without a success notice and is not sent automatically.
