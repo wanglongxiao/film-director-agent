@@ -9,6 +9,7 @@ import tos
 
 import config
 from .titles import clean_title, recover_title, repair_document
+from .model_output import recover_history_fields
 
 
 class Conflict(RuntimeError):
@@ -75,14 +76,16 @@ class Storage:
         doc = json.loads(raw)
         state = doc["state"]
         # Never mutate a task leased by another request or change history order.
-        if not (doc.get("job") or {}).get("expires_at", 0) > time.time() and (
-            state.get("novel") or (state.get("outline") and state.get("characters"))
-        ) and repair_document(doc):
-            try:
-                etag = self.save(doc, etag, preserve_time=True)
-            except Conflict:
-                raw, etag = self.get(self.task_key(owner, sid))
-                return (json.loads(raw), etag) if raw else (None, None)
+        if not (doc.get("job") or {}).get("expires_at", 0) > time.time():
+            changed = recover_history_fields(state, doc.get("history", []))
+            if state.get("novel") or (state.get("outline") and state.get("characters")):
+                changed = repair_document(doc) or changed
+            if changed:
+                try:
+                    etag = self.save(doc, etag, preserve_time=True)
+                except Conflict:
+                    raw, etag = self.get(self.task_key(owner, sid))
+                    return (json.loads(raw), etag) if raw else (None, None)
         return doc, etag
 
     def save(self, doc, etag=None, create=False, preserve_time=False):

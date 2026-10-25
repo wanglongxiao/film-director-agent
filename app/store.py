@@ -9,6 +9,7 @@ from typing import Callable, Optional
 
 from .schemas import Episode, SessionState
 from .storage import Storage, Conflict
+from .model_output import display_history
 
 
 class SessionStore:
@@ -119,7 +120,7 @@ class SessionStore:
             item = self._sessions[sid]
             doc = item["doc"]
             job = doc.get("job")
-            return {"session_id": sid, "state": item["state"], "history": item["history"],
+            return {"session_id": sid, "state": item["state"], "history": display_history(item["history"]),
                     "auto_run": doc["auto_run"], "busy": bool(job and job["expires_at"] > time.time()),
                     "status": doc.get("status", "idle"), "last_error": doc.get("last_error")}
 

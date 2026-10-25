@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Callable, Optional
 
 from . import llm
+from .model_output import partial_string, extract_json, visible_reply, display_history
 from .titles import clean_title, explicit_title
 from .schemas import Chapter, Character, Episode, SessionState, Storyboard
 
@@ -68,6 +68,7 @@ def _build_system_prompt(state: SessionState) -> str:
             '"reply": "<your message to the user, in the session language>", '
             '"stage": "<current stage>", "state_update": {<fields you set or changed>}}. '
             'Emit the "thought" field first, then "reply". '
+            "Escape quotes, backslashes and line breaks inside JSON strings. "
             "Do not add any prose outside the JSON.",
             "Session language: " + state.language,
             "Current session state (JSON):\n" + json.dumps(
@@ -78,66 +79,17 @@ def _build_system_prompt(state: SessionState) -> str:
 
 
 def _extract_partial_string(text: str, key: str) -> tuple[Optional[str], bool]:
-    """Progressively extract the JSON string value of a top-level key.
-
-    Returns (value, is_closed). Works on an incomplete JSON stream so the value
-    can be streamed live to the client before the whole object has finished.
-    """
-    idx = text.find('"%s"' % key)
-    if idx < 0:
-        return None, False
-    colon = text.find(":", idx + len(key) + 2)
-    if colon < 0:
-        return None, False
-    j = colon + 1
-    while j < len(text) and text[j] in " \t\r\n":
-        j += 1
-    if j >= len(text) or text[j] != '"':
-        return None, False
-    j += 1
-    buf: list[str] = []
-    closed = False
-    i = j
-    while i < len(text):
-        c = text[i]
-        if c == "\\":
-            if i + 1 < len(text):
-                buf.append(c)
-                buf.append(text[i + 1])
-                i += 2
-            else:  # dangling escape at the stream boundary
-                break
-            continue
-        if c == '"':
-            closed = True
-            break
-        buf.append(c)
-        i += 1
-    value = "".join(buf)
-    if closed:
-        try:
-            value = json.loads('"%s"' % value)
-        except json.JSONDecodeError:
-            pass
-    return value, closed
+    """Decode the visible prefix of a streamed JSON string."""
+    return partial_string(text, key)
 
 
 def _extract_json(text: str) -> Optional[dict]:
-    """Extract the first JSON object from a model reply (handles code fences)."""
-    cleaned = text.strip()
-    match = re.search(r"```(?:json)?\s*(.*?)```", cleaned, re.S)
-    if match:
-        cleaned = match.group(1).strip()
-    try:
-        start = cleaned.index("{")
-        end = cleaned.rindex("}")
-        return json.loads(cleaned[start : end + 1])
-    except (ValueError, json.JSONDecodeError):
-        return None
+    """Recover structured fields from valid or repairable model JSON."""
+    return extract_json(text)
 
 
 def _apply_state_update(state: SessionState, update: Optional[dict]) -> None:
-    if not update:
+    if not isinstance(update, dict) or not update:
         return
     if any(update.get(key, getattr(state, key)) != getattr(state, key)
            for key in ("background", "characters", "outline")):
@@ -146,10 +98,12 @@ def _apply_state_update(state: SessionState, update: Optional[dict]) -> None:
         if not isinstance(value, (str, int, float, bool, list, dict)):
             continue
         if key == "characters" and isinstance(value, list):
-            state.characters = [
-                Character(**item) if isinstance(item, dict) else Character(name=str(item))
-                for item in value
-            ]
+            try:
+                characters = [Character.model_validate(item) for item in value]
+                if all(c.name and c.role and c.background and c.personality and c.arc for c in characters):
+                    state.characters = characters
+            except ValueError:
+                pass
         elif key == "discussion_chapters" and isinstance(value, list):
             try:
                 chapters = [Chapter.model_validate(item) for item in value]
@@ -166,7 +120,7 @@ def _apply_state_update(state: SessionState, update: Optional[dict]) -> None:
                     state.novel.title = state.title
         elif key in ("episodes", "novel", "text_model", "writing"):
             continue  # manuscripts are added via dedicated endpoints
-        elif hasattr(state, key):
+        elif hasattr(state, key) and isinstance(value, str):
             setattr(state, key, value)
 
 
@@ -174,7 +128,7 @@ def run_agent(state: SessionState, history: list[dict], message: str) -> tuple[s
     """Run one turn of the conversation agent. Returns (reply, updated_state)."""
     messages = [
         {"role": "system", "content": _build_system_prompt(state)},
-        *history,
+        *display_history(history),
         {"role": "user", "content": message},
     ]
     raw = llm.chat(messages)
@@ -183,9 +137,9 @@ def run_agent(state: SessionState, history: list[dict], message: str) -> tuple[s
 
     if parsed is None:
         # Fallback: treat the raw text as the reply and keep the state unchanged.
-        return raw, new_state
+        return visible_reply(raw), new_state
 
-    reply = str(parsed.get("reply") or raw)
+    reply = visible_reply(raw, parsed)
     stage = parsed.get("stage")
     if isinstance(stage, str) and stage:
         new_state.stage = stage
@@ -211,7 +165,7 @@ def stream_run_agent(
     """
     messages = [
         {"role": "system", "content": _build_system_prompt(state)},
-        *history,
+        *display_history(history),
         {"role": "user", "content": message},
     ]
     text = ""
@@ -248,30 +202,17 @@ def stream_run_agent(
         return
 
     parsed = _extract_json(text)
-    if parsed is None:
-        # Fallback: emit any text not already streamed, then finish without state changes.
-        remaining = text[len(prev_reply):] if prev_reply else text
-        if remaining.strip():
-            yield {"type": "output", "delta": remaining.strip()}
-        yield {
-            "type": "done",
-            "reply": text.strip(),
-            "state": new_state,
-            "stage": new_state.stage,
-            "interrupted": False,
-        }
-        return
-
-    reply_text = str(parsed.get("reply") or text)
+    reply_text = visible_reply(text, parsed)
+    parsed = parsed or {}
     stage = parsed.get("stage")
     if isinstance(stage, str) and stage:
         new_state.stage = stage
     _apply_state_update(new_state, parsed.get("state_update"))
     if explicit_title(message):
         _apply_state_update(new_state, {"title": explicit_title(message)})
-    if not prev_reply and reply_text:
+    if reply_text.startswith(prev_reply) and len(reply_text) > len(prev_reply):
         # Reply was only parseable at the end (e.g. JSON discovered late): emit it now.
-        yield {"type": "output", "delta": reply_text}
+        yield {"type": "output", "delta": reply_text[len(prev_reply):]}
     yield {
         "type": "done",
         "reply": reply_text,
