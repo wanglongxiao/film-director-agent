@@ -104,7 +104,8 @@ class Storage:
             ) or sid[:8],
             "created_at": doc["created_at"], "updated_at": doc["updated_at"],
             "completed": sum(bool(c.get("content")) for c in book.get("chapters", [])),
-            "total": book.get("chapters_count", state.get("writing", {}).get("chapters_count", 20)),
+            "total": book.get("chapters_count", state.get("writing", {}).get(
+                "chapters_count", config.GENERATION_SETTINGS["chapters_count"]["default"])),
             "status": doc.get("status", "idle"), "language": state["language"],
         }
         # The task document is authoritative. A failed summary update must not

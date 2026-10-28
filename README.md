@@ -81,7 +81,7 @@ Cloud pages, static resources, and APIs require login; local mode has no passwor
 
 ## Writing and export
 
-1. First set 1–120 chapters (default 20) and 2,000–10,000 words per chapter in English, or characters in the other languages (default 4,000). These limits and defaults are defined in `config.GENERATION_SETTINGS` and loaded by the web UI.
+1. First set 1–120 chapters (default 10) and 500–10,000 words per chapter in English, or characters in the other languages (default 1,500). These limits and defaults are defined in `config.GENERATION_SETTINGS` and loaded by the web UI.
 2. Complete character profiles and the outline in the discussion panel. Reference images allow 1–10 per request (default 4) on desktop.
 3. Generate the full manuscript. The accepted discussion chapter map becomes the saved manuscript directory immediately, without another model planning call. If that map is unavailable, planning has its own request. Each following request writes one chapter; the browser automatically continues after saving. Active requests send a heartbeat every 10 seconds, including while the model is thinking. Heartbeats avoid idle silence but do not extend the gateway's absolute timeout. Failures are logged and shown in the task status.
 4. Stop when needed, then continue with the same chapter plan and length. A chapter is saved only after reaching at least 80% of its target length without truncation.

@@ -51,7 +51,8 @@ class Novel(BaseModel):
     )
     chapter_length: int = Field(
         default=config.GENERATION_SETTINGS["chapter_length"]["default"],
-        ge=800, le=config.GENERATION_SETTINGS["chapter_length"]["max"],
+        ge=config.GENERATION_SETTINGS["chapter_length"]["min"],
+        le=config.GENERATION_SETTINGS["chapter_length"]["max"],
     )
     chapters: list[Chapter] = Field(default_factory=list)
 
