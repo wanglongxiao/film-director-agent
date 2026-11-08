@@ -18,7 +18,7 @@
 
 - 讨论背景、角色、大纲、剧本形式、风格与年龄分级。
 - 讨论阶段确定独立作品标题，正文、历史任务及 Word 导出统一使用；旧任务从已保存讨论或故事信息补题，保留全部章节。
-- 讨论与剧本创作统一使用 `deepseek-v4.1-flash-off`，关闭 thinking，输出上限为 65,536 tokens。
+- 讨论与剧本创作统一使用 `deepseek-v4.1-flash-off`，关闭 thinking，两者配置中的输出上限均为 300,000 tokens。
 - 规划 1–120 章，每次 HTTP 请求生成一章，保存成功后自动请求下一章，无需逐章手动操作。
 - 导出 Word：标题居中的独立封面 → 背景设定 → 人物侧写及对应角色图片 → 章节索引 → 各章正文；各部分与每个章节均从新页开始。
 - 生成 4:3 角色定妆图与场景参考图，最大并发 10，支持临时错误重试。
@@ -52,7 +52,7 @@ uv run --with-requirements requirements.txt uvicorn app.main:app --host 127.0.0.
 | `ARK_API_KEY` | 私有密钥，禁止提交 |
 | `LLM_BASE_URL` | `https://ark.ap-southeast.bytepluses.com/api/v3` |
 | `MAIN_AGENT_MODEL` | 自己账户的 `deepseek-v4.1-flash-off` 端点，供讨论与正文共用 |
-| `MAIN_AGENT_MAX_TOKENS` | `65536` |
+| `MAIN_AGENT_MAX_TOKENS` | `300000`，主 Agent 和剧本模型共用 |
 | `LLM_MODEL_IMAGE` | 自己账户的 `seedream-5.0-flash` 端点 |
 | `VISION_REVIEW_MODEL` | 自己账户的 `seed-2.1-turbo-off` 端点，预留视觉审查配置 |
 | `VIDEO_MODEL` | 自己账户的 `seedance-2.5-off` 端点，预留视频生成配置 |
@@ -68,7 +68,7 @@ uv run --with-requirements requirements.txt uvicorn app.main:app --host 127.0.0.
 | `TOS_BUCKET` | `movie-novel`，需在自己账户中创建私有桶 |
 | `TOS_ENDPOINT` | `https://tos-ap-southeast-1.bytepluses.com` |
 
-主 Agent 负责讨论、背景、人物侧写、大纲和信息补全；剧本模型负责章节规划、正文、连续性摘要和分镜，两者共用 `MAIN_AGENT_MODEL` 和 `MAIN_AGENT_MAX_TOKENS`。历史选择 `deepseek-1017`、`deepseek-0910`、`seed-sc-0215` 等自动映射到当前模型，旧 `SCRIPT_*_MODEL` 和 `SCRIPT_*_MAX_TOKENS` 变量不再使用。`SCRIPT_LLM_TEMPERATURE` 默认 `0.9`，用于讨论与创作，连续性摘要使用 `0.2`。网页通过 `/api/models` 自动读取模型名称、输出上限、篇幅范围及默认值、语音功能可用状态，不返回私有端点和密钥。视觉、视频端点为预留配置，当前 Web UI 不提供这些功能。实际输出能力、请求上限和内容限制以模型服务商为准。
+主 Agent 负责讨论、背景、人物侧写、大纲和信息补全；剧本模型负责章节规划、正文、连续性摘要和分镜，两者共用 `MAIN_AGENT_MODEL` 和 `MAIN_AGENT_MAX_TOKENS`，默认输出上限为 `300000`。已保存的字符串模型选择统一使用当前唯一模型。`SCRIPT_LLM_TEMPERATURE` 默认 `0.9`，用于讨论与创作，连续性摘要使用 `0.2`。网页通过 `/api/models` 自动读取模型名称、输出上限、篇幅范围及默认值、语音功能可用状态，不返回私有端点和密钥。视觉、视频端点为预留配置，当前 Web UI 不提供这些功能。实际输出能力、请求上限和内容限制以模型服务商为准。
 
 ## BytePlus veFaaS 部署
 

@@ -48,9 +48,8 @@ def chat(
         "model": settings["endpoint"],
         "messages": messages,
         "temperature": config.SCRIPT_LLM_TEMPERATURE if temperature is None else temperature,
+        "extra_body": dict(_REASONING),
     }
-    if model_key is None or model_key.startswith("deepseek-"):
-        kwargs["extra_body"] = dict(_REASONING)
     kwargs["max_tokens"] = min(max_tokens or settings["max_tokens"], settings["max_tokens"])
     resp = get_client(deadline).chat.completions.create(**kwargs)
     if resp.choices[0].finish_reason == "length":
@@ -73,9 +72,8 @@ def chat_stream(
         "messages": messages,
         "temperature": config.SCRIPT_LLM_TEMPERATURE if temperature is None else temperature,
         "stream": True,
+        "extra_body": dict(_REASONING),
     }
-    if model_key is None or model_key.startswith("deepseek-"):
-        kwargs["extra_body"] = dict(_REASONING)
     kwargs["max_tokens"] = min(max_tokens or settings["max_tokens"], settings["max_tokens"])
     stream = get_client(deadline).chat.completions.create(**kwargs)
     try:

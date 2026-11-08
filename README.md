@@ -18,7 +18,7 @@ The video shows an earlier version; the current app also supports full manuscrip
 
 - Discuss the background, characters, outline, film format, style, and age rating.
 - Set a distinct work title during discussion; use it for the manuscript, history and Word export. Older untitled scripts recover a name from their saved discussion or story details without changing chapters.
-- Use `deepseek-v4.1-flash-off` for discussion and writing, with thinking disabled and a 65,536-token output budget.
+- Use `deepseek-v4.1-flash-off` for discussion and writing, with thinking disabled and a configured 300,000-token output budget for both.
 - Plan 1–120 chapters, then automatically write one chapter per HTTP request. Each chapter is saved before the browser requests the next.
 - Export Word in this order: centered title cover, background, character profiles with portraits, chapter index, then full prose. Each part and each chapter starts on a new page.
 - Generate 4:3 character and scene reference images, with up to 10 concurrent requests and retries for transient failures.
@@ -52,7 +52,7 @@ Keys and endpoint IDs stay on the server. `.env.example` leaves these fields emp
 | `ARK_API_KEY` | Your private key; never commit it |
 | `LLM_BASE_URL` | `https://ark.ap-southeast.bytepluses.com/api/v3` |
 | `MAIN_AGENT_MODEL` | Your `deepseek-v4.1-flash-off` endpoint, used for discussion and writing |
-| `MAIN_AGENT_MAX_TOKENS` | `65536` |
+| `MAIN_AGENT_MAX_TOKENS` | `300000` for both the main agent and script writer |
 | `LLM_MODEL_IMAGE` | Your `seedream-5.0-flash` endpoint |
 | `VISION_REVIEW_MODEL` | Your `seed-2.1-turbo-off` endpoint; reserved for vision review |
 | `VIDEO_MODEL` | Your `seedance-2.5-off` endpoint; reserved for video generation |
@@ -68,7 +68,7 @@ Keys and endpoint IDs stay on the server. `.env.example` leaves these fields emp
 | `TOS_BUCKET` | `movie-novel`; create a private bucket in your own account |
 | `TOS_ENDPOINT` | `https://tos-ap-southeast-1.bytepluses.com` |
 
-The main agent handles discussion and story setup; the writer handles chapter plans, prose, summaries, and storyboards. Both use `MAIN_AGENT_MODEL` and `MAIN_AGENT_MAX_TOKENS`. Saved selections such as `deepseek-1017`, `deepseek-0910`, and `seed-sc-0215` map to the current model. Legacy `SCRIPT_*_MODEL` and `SCRIPT_*_MAX_TOKENS` variables are no longer used. `SCRIPT_LLM_TEMPERATURE` defaults to `0.9` for discussion and writing; continuity summaries use `0.2`. `/api/models` supplies model names, output budgets, generation limits and defaults, and speech availability, without private endpoints or keys. Vision and video endpoint settings are reserved; the current web UI does not offer those features. Actual output limits and available content depend on the model provider.
+The main agent handles discussion and story setup; the writer handles chapter plans, prose, summaries, and storyboards. Both use `MAIN_AGENT_MODEL` and `MAIN_AGENT_MAX_TOKENS`, with a default output budget of `300000`. Saved string model selections use the current single model. `SCRIPT_LLM_TEMPERATURE` defaults to `0.9` for discussion and writing; continuity summaries use `0.2`. `/api/models` supplies model names, output budgets, generation limits and defaults, and speech availability, without private endpoints or keys. Vision and video endpoint settings are reserved; the current web UI does not offer those features. Actual output limits and available content depend on the model provider.
 
 ## BytePlus veFaaS
 

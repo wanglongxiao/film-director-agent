@@ -39,12 +39,12 @@ SPEECH_MAX_SECONDS = 120
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://ark.ap-southeast.bytepluses.com/api/v3")
 
 # API Key (get it from the BytePlus ModelArk console)
-ARK_API_KEY = os.getenv("ARK_API_KEY") or os.getenv("API_KEY", "")
+ARK_API_KEY = os.getenv("ARK_API_KEY", "")
 
-# Main agent controls the conversation and story setup independently of writers.
+# Main agent and script writer share this endpoint and output ceiling.
 MAIN_AGENT_MODEL = {
     "endpoint": os.environ["MAIN_AGENT_MODEL"],
-    "max_tokens": int(os.environ["MAIN_AGENT_MAX_TOKENS"]),
+    "max_tokens": int(os.getenv("MAIN_AGENT_MAX_TOKENS", "300000")),
 }
 
 # Image generation model (Seedream)
@@ -68,20 +68,6 @@ GENERATION_SETTINGS = {
     "images_count": {"min": 1, "max": 10, "default": 4},
 }
 
-# Compatibility aliases for existing tools.
-LLM_MODEL_CHAT = MAIN_AGENT_MODEL["endpoint"]
-LLM_MAX_TOKENS = MAIN_AGENT_MODEL["max_tokens"]
-NOVEL_CHAPTER_MAX_TOKENS = CHAT_MODELS[DEFAULT_TEXT_MODEL]["max_tokens"]
-
-
 def normalize_text_model(value):
-    """Keep previously saved model selections readable."""
-    if isinstance(value, str):
-        return {
-            "deepseek": DEFAULT_TEXT_MODEL,
-            "deepseek-0910": DEFAULT_TEXT_MODEL,
-            "deepseek-1017": DEFAULT_TEXT_MODEL,
-            "seed-sc": DEFAULT_TEXT_MODEL,
-            "seed-sc-0215": DEFAULT_TEXT_MODEL,
-        }.get(value, value)
-    return value
+    """Use the single configured model for saved string selections."""
+    return DEFAULT_TEXT_MODEL if isinstance(value, str) else value
