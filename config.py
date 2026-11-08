@@ -15,6 +15,9 @@ WEBUI_ACCESS_PASSWORD = os.getenv("WEBUI_ACCESS_PASSWORD", "")
 WEBUI_SESSION_SECRET = os.getenv("WEBUI_SESSION_SECRET", "")
 TOS_REGION = os.getenv("TOS_REGION", "ap-southeast-1")
 TOS_BUCKET = os.getenv("TOS_BUCKET", "")
+STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "tos")
+if STORAGE_BACKEND != "tos":
+    raise RuntimeError("STORAGE_BACKEND must be tos.")
 TOS_ENDPOINT = os.getenv("TOS_ENDPOINT", "https://tos-ap-southeast-1.bytepluses.com").strip("`")
 if WEBUI_CLOUD_MODE and not (WEBUI_ACCESS_PASSWORD and WEBUI_SESSION_SECRET):
     raise RuntimeError("云端必须配置准入密码和会话签名密钥。")
@@ -46,22 +49,17 @@ MAIN_AGENT_MODEL = {
 
 # Image generation model (Seedream)
 LLM_MODEL_IMAGE = os.environ["LLM_MODEL_IMAGE"]
+VISION_REVIEW_MODEL = os.getenv("VISION_REVIEW_MODEL", "")
+VIDEO_MODEL = os.getenv("VIDEO_MODEL", "")
 
 # Seedream output size, e.g. "2048x1536" for a 4:3 aspect ratio.
 IMAGE_SIZE = os.environ["IMAGE_SIZE"]
 
 # Session selections always use these model-specific ceilings.
 CHAT_MODELS = {
-    "deepseek-1017": {
-        "endpoint": os.environ["SCRIPT_DEEPSEEK_1017_MODEL"],
-        "max_tokens": int(os.environ["SCRIPT_DEEPSEEK_1017_MAX_TOKENS"]),
-    },
-    "seed-sc-0215": {
-        "endpoint": os.environ["SCRIPT_SEED_SC_0215_MODEL"],
-        "max_tokens": int(os.environ["SCRIPT_SEED_SC_0215_MAX_TOKENS"]),
-    },
+    "deepseek-v4.1-flash-off": dict(MAIN_AGENT_MODEL),
 }
-DEFAULT_TEXT_MODEL = "deepseek-1017"
+DEFAULT_TEXT_MODEL = "deepseek-v4.1-flash-off"
 
 # Public generation controls shared by API validation and the web UI.
 GENERATION_SETTINGS = {
@@ -80,8 +78,10 @@ def normalize_text_model(value):
     """Keep previously saved model selections readable."""
     if isinstance(value, str):
         return {
-            "deepseek": "deepseek-1017",
-            "deepseek-0910": "deepseek-1017",
-            "seed-sc": "seed-sc-0215",
+            "deepseek": DEFAULT_TEXT_MODEL,
+            "deepseek-0910": DEFAULT_TEXT_MODEL,
+            "deepseek-1017": DEFAULT_TEXT_MODEL,
+            "seed-sc": DEFAULT_TEXT_MODEL,
+            "seed-sc-0215": DEFAULT_TEXT_MODEL,
         }.get(value, value)
     return value

@@ -48,7 +48,7 @@ async def _sweep_loop() -> None:
     """Evict inactive cache entries; durable task documents remain available."""
     while True:
         await asyncio.sleep(60)
-        store.sweep(max_age_seconds=600)
+        await run_in_threadpool(store.sweep, max_age_seconds=600)
 
 
 @asynccontextmanager
@@ -83,14 +83,14 @@ def apply_writing_settings(state: SessionState, body: WritingSettings) -> Sessio
     return state
 
 
-def complete_discussion_plan(state: SessionState, reply: str) -> str:
+def complete_discussion_plan(state: SessionState, reply: str, deadline=None) -> str:
     if not state.characters or not state.outline:
         return reply
     expected = list(range(1, state.writing.chapters_count + 1))
     if [c.number for c in state.discussion_chapters] != expected:
-        plan = novel.plan_novel(state, NovelRequest(**state.writing.model_dump()))
+        plan = novel.plan_novel(state, NovelRequest(**state.writing.model_dump()), deadline=deadline)
         state.discussion_chapters = plan.chapters
-    novel.ensure_title(state)
+    novel.ensure_title(state, deadline=deadline)
     # Display the exact structured map even when the conversational reply only
     # contains a broad outline. This same map is passed to the prose writer.
     chapter_map = "\n\n".join(
@@ -196,7 +196,7 @@ async def speech_input(sid: str, request: Request) -> dict:
 
 
 @app.post("/api/sessions/{sid}/chat", response_model=ChatResponse)
-def chat(sid: str, body: ChatRequest) -> ChatResponse:
+def chat(sid: str, body: ChatRequest, request: Request) -> ChatResponse:
     item = store.get(sid)
     if item is None:
         raise HTTPException(status_code=404, detail="session not found")
@@ -204,7 +204,8 @@ def chat(sid: str, body: ChatRequest) -> ChatResponse:
         raise HTTPException(status_code=409, detail="正文生成中，请先停止生成。")
     state = apply_writing_settings(item["state"], body)
     try:
-        reply, new_state = agent.run_agent(state, item["history"], body.message)
+        deadline = request.state.generation_deadline
+        reply, new_state = agent.run_agent(state, item["history"], body.message, deadline=deadline)
         if new_state.stage in ("script_type", "episodes") and (
             not new_state.characters or not new_state.outline
         ):
@@ -212,9 +213,9 @@ def chat(sid: str, body: ChatRequest) -> ChatResponse:
                 new_state, item["history"] + [
                     {"role": "user", "content": body.message},
                     {"role": "assistant", "content": reply},
-                ]
+                ], deadline=deadline,
             )
-        reply = complete_discussion_plan(new_state, reply)
+        reply = complete_discussion_plan(new_state, reply, deadline=deadline)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=public_error(exc)) from exc
     store.add_history(sid, "user", body.message)
@@ -225,7 +226,7 @@ def chat(sid: str, body: ChatRequest) -> ChatResponse:
 
 
 @app.post("/api/sessions/{sid}/chat/stream")
-def chat_stream(sid: str, body: ChatRequest) -> StreamingResponse:
+def chat_stream(sid: str, body: ChatRequest, request: Request) -> StreamingResponse:
     """Stream one agent turn as newline-delimited JSON.
 
     Events: {"type":"thought"|"output","delta":...} then
@@ -238,6 +239,7 @@ def chat_stream(sid: str, body: ChatRequest) -> StreamingResponse:
         raise HTTPException(status_code=409, detail="正文生成中，请先停止生成。")
     store.set_cancel(sid, False)
     state = apply_writing_settings(item["state"], body)
+    deadline = request.state.generation_deadline
 
     def generate():
         store.touch(sid)
@@ -246,6 +248,7 @@ def chat_stream(sid: str, body: ChatRequest) -> StreamingResponse:
             item["history"],
             body.message,
             should_stop=lambda: store.is_cancel(sid),
+            deadline=deadline,
         )
         try:
             for ev in events:
@@ -265,9 +268,9 @@ def chat_stream(sid: str, body: ChatRequest) -> StreamingResponse:
                             new_state, item["history"] + [
                                 {"role": "user", "content": body.message},
                                 {"role": "assistant", "content": ev["reply"]},
-                            ]
+                            ], deadline=deadline,
                         )
-                    ev["reply"] = complete_discussion_plan(new_state, ev["reply"])
+                    ev["reply"] = complete_discussion_plan(new_state, ev["reply"], deadline=deadline)
                     if store.is_cancel(sid) or store.get(sid) is None:
                         yield json.dumps({"type": "interrupted"}) + "\n"
                         return
@@ -288,7 +291,11 @@ def chat_stream(sid: str, body: ChatRequest) -> StreamingResponse:
         except Exception as exc:  # noqa: BLE001
             yield json.dumps({"type": "error", "message": public_error(exc)}, ensure_ascii=False) + "\n"
 
-    return StreamingResponse(generate(), media_type="application/x-ndjson")
+    return StreamingResponse(
+        with_heartbeats(generate(), lambda: store.set_cancel(sid, True)),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.post("/api/sessions/{sid}/stop")
@@ -314,7 +321,7 @@ def delete_session(sid: str) -> dict:
 
 
 @app.post("/api/sessions/{sid}/episodes/generate", response_model=EpisodeResponse)
-def generate_episode(sid: str, body: EpisodeRequest) -> EpisodeResponse:
+def generate_episode(sid: str, body: EpisodeRequest, request: Request) -> EpisodeResponse:
     item = store.get(sid)
     if item is None:
         raise HTTPException(status_code=404, detail="session not found")
@@ -322,7 +329,8 @@ def generate_episode(sid: str, body: EpisodeRequest) -> EpisodeResponse:
         raise HTTPException(status_code=409, detail="正文生成中，请先停止生成。")
     state = item["state"]
     try:
-        episode = agent.generate_episode(state, body.number, body.storyboards_count)
+        deadline = request.state.generation_deadline
+        episode = agent.generate_episode(state, body.number, body.storyboards_count, deadline=deadline)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=public_error(exc)) from exc
     if body.with_images:
@@ -331,7 +339,7 @@ def generate_episode(sid: str, body: EpisodeRequest) -> EpisodeResponse:
             for sb in episode.storyboards
         ]
         # Generate storyboard images in parallel (max concurrency 10).
-        urls = imagegen.generate_images(prompts)
+        urls = imagegen.generate_images(prompts, deadline=deadline - 60)
         for idx, (sb, prompt, image_url) in enumerate(
             zip(episode.storyboards, prompts, urls)
         ):
@@ -344,7 +352,7 @@ def generate_episode(sid: str, body: EpisodeRequest) -> EpisodeResponse:
 
 
 @app.post("/api/sessions/{sid}/references/generate", response_model=ReferenceResponse)
-def generate_references(sid: str, body: ReferenceRequest) -> ReferenceResponse:
+def generate_references(sid: str, body: ReferenceRequest, request: Request) -> ReferenceResponse:
     """Generate reference images: main character portraits + key scene references.
 
     Requires character profiles and story outline to be present in the session.
@@ -355,10 +363,11 @@ def generate_references(sid: str, body: ReferenceRequest) -> ReferenceResponse:
     if store.novel_busy(sid):
         raise HTTPException(status_code=409, detail="正文生成中，请先停止生成。")
     state = item["state"]
+    deadline = request.state.generation_deadline
     # The conversational model sometimes writes profiles/outline into the visible
     # reply only. Recover them from history so this feature isn't blocked.
     if not state.characters or not state.outline:
-        state = agent.backfill_state_from_history(state, item["history"])
+        state = agent.backfill_state_from_history(state, item["history"], deadline=deadline)
         if state.characters and state.outline:
             store.set_state(sid, state)
             persist.save_task_state(sid, state)
@@ -396,7 +405,7 @@ def generate_references(sid: str, body: ReferenceRequest) -> ReferenceResponse:
         tasks.append(ReferenceImage(kind="scene", title=f"关键分镜 {i}", prompt=prompt))
 
     # Generate all reference images in parallel (max concurrency 10).
-    urls = imagegen.generate_images([ref.prompt for ref in tasks])
+    urls = imagegen.generate_images([ref.prompt for ref in tasks], deadline=deadline - 60)
     for idx, (ref, image_url) in enumerate(zip(tasks, urls)):
         ref.image_url = image_url
         ref.image_url = persist.save_image(

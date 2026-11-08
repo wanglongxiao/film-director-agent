@@ -6,7 +6,7 @@ from pydantic import BaseModel, BeforeValidator, Field
 import config
 
 TextModel = Annotated[
-    Literal["deepseek-1017", "seed-sc-0215"],
+    Literal["deepseek-v4.1-flash-off"],
     BeforeValidator(config.normalize_text_model),
 ]
 

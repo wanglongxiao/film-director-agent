@@ -37,11 +37,11 @@ async def with_heartbeats(source, on_disconnect):
                 return
             yield event
     finally:
-        if not finished:
-            on_disconnect()
         # Starlette cancels on disconnect. Shield cleanup so the model worker
         # cannot outlive the request and write after another browser resumes.
         with anyio.CancelScope(shield=True):
+            if not finished:
+                await run_in_threadpool(on_disconnect)
             if pending is not None:
                 try:
                     await asyncio.shield(pending)

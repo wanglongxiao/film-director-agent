@@ -124,14 +124,14 @@ def _apply_state_update(state: SessionState, update: Optional[dict]) -> None:
             setattr(state, key, value)
 
 
-def run_agent(state: SessionState, history: list[dict], message: str) -> tuple[str, SessionState]:
+def run_agent(state: SessionState, history: list[dict], message: str, deadline=None) -> tuple[str, SessionState]:
     """Run one turn of the conversation agent. Returns (reply, updated_state)."""
     messages = [
         {"role": "system", "content": _build_system_prompt(state)},
         *display_history(history),
         {"role": "user", "content": message},
     ]
-    raw = llm.chat(messages)
+    raw = llm.chat(messages, deadline=deadline)
     parsed = _extract_json(raw)
     new_state = state.model_copy(deep=True)
 
@@ -154,6 +154,7 @@ def stream_run_agent(
     history: list[dict],
     message: str,
     should_stop: Optional[Callable[[], bool]] = None,
+    deadline=None,
 ):
     """Stream one agent turn, yielding event dicts.
 
@@ -176,7 +177,7 @@ def stream_run_agent(
     def _stopped() -> bool:
         return bool(should_stop and should_stop())
 
-    for delta in llm.chat_stream(messages):
+    for delta in llm.chat_stream(messages, deadline=deadline):
         if _stopped():
             interrupted = True
             break
@@ -267,7 +268,7 @@ Rules:
 
 
 def backfill_state_from_history(
-    state: SessionState, history: list[dict]
+    state: SessionState, history: list[dict], deadline=None,
 ) -> SessionState:
     """Recover characters/outline from the chat history when structured state is empty.
 
@@ -291,7 +292,7 @@ def backfill_state_from_history(
         {"role": "user", "content": f"Conversation:\n{convo}\n\nExtract now."},
     ]
     try:
-        raw = llm.chat(messages)
+        raw = llm.chat(messages, deadline=deadline)
     except Exception:  # noqa: BLE001
         return new_state
     parsed = _extract_json(raw)
@@ -312,7 +313,7 @@ def backfill_state_from_history(
     return new_state
 
 
-def generate_episode(state: SessionState, number: int, storyboards_count: int) -> Episode:
+def generate_episode(state: SessionState, number: int, storyboards_count: int, deadline=None) -> Episode:
     """Generate one episode script (storyboards / scenes / dialogue) from the session state."""
     context = {
         "background": state.background,
@@ -335,7 +336,7 @@ def generate_episode(state: SessionState, number: int, storyboards_count: int) -
             ),
         },
     ]
-    raw = llm.chat(messages, model_key=state.text_model)
+    raw = llm.chat(messages, model_key=state.text_model, deadline=deadline)
     parsed = _extract_json(raw)
     if parsed is None:
         raise ValueError(f"Agent did not return valid JSON for the episode: {raw[:200]}")

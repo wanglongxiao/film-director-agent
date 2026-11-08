@@ -6,7 +6,7 @@
 
 ## Demo
 
-[打开 Demo Site](https://sh0o6o11ievepvnqcjrvg.apigateway-ap-southeast-1.apigw-byteplus.com/)
+[打开 Demo Site](https://s07fjlv47sa8mvi5sqo72.apigateway-ap-southeast-1.apigw-byteplus.com/)
 
 云端演示需要准入密码。
 
@@ -18,7 +18,7 @@
 
 - 讨论背景、角色、大纲、剧本形式、风格与年龄分级。
 - 讨论阶段确定独立作品标题，正文、历史任务及 Word 导出统一使用；旧任务从已保存讨论或故事信息补题，保留全部章节。
-- 主 Agent 与剧本模型独立配置；网页可选 `deepseek-1017`（默认）和 `seed-sc-0215`。
+- 讨论与剧本创作统一使用 `deepseek-v4.1-flash-off`，关闭 thinking，输出上限为 65,536 tokens。
 - 规划 1–120 章，每次 HTTP 请求生成一章，保存成功后自动请求下一章，无需逐章手动操作。
 - 导出 Word：标题居中的独立封面 → 背景设定 → 人物侧写及对应角色图片 → 章节索引 → 各章正文；各部分与每个章节均从新页开始。
 - 生成 4:3 角色定妆图与场景参考图，最大并发 10，支持临时错误重试。
@@ -51,13 +51,11 @@ uv run --with-requirements requirements.txt uvicorn app.main:app --host 127.0.0.
 | --- | --- |
 | `ARK_API_KEY` | 私有密钥，禁止提交 |
 | `LLM_BASE_URL` | `https://ark.ap-southeast.bytepluses.com/api/v3` |
-| `MAIN_AGENT_MODEL` | 自己账户的主 Agent 端点 |
-| `MAIN_AGENT_MAX_TOKENS` | `300000` |
-| `SCRIPT_DEEPSEEK_1017_MODEL` | 自己账户的 DeepSeek 端点 |
-| `SCRIPT_DEEPSEEK_1017_MAX_TOKENS` | `200000` |
-| `SCRIPT_SEED_SC_0215_MODEL` | 自己账户的 Seed 端点 |
-| `SCRIPT_SEED_SC_0215_MAX_TOKENS` | `32000` |
-| `LLM_MODEL_IMAGE` | 自己账户的 Seedream 端点 |
+| `MAIN_AGENT_MODEL` | 自己账户的 `deepseek-v4.1-flash-off` 端点，供讨论与正文共用 |
+| `MAIN_AGENT_MAX_TOKENS` | `65536` |
+| `LLM_MODEL_IMAGE` | 自己账户的 `seedream-5.0-flash` 端点 |
+| `VISION_REVIEW_MODEL` | 自己账户的 `seed-2.1-turbo-off` 端点，预留视觉审查配置 |
+| `VIDEO_MODEL` | 自己账户的 `seedance-2.5-off` 端点，预留视频生成配置 |
 | `IMAGE_SIZE` | `2048x1536`（4:3） |
 | `SCRIPT_LLM_TEMPERATURE` | `0.9` |
 | `SPEECH_API_KEY` | Seed-Speech 私有 API Key |
@@ -65,17 +63,20 @@ uv run --with-requirements requirements.txt uvicorn app.main:app --host 127.0.0.
 | `SPEECH_ASR_URL` | 独立的 Seed-Speech API 域名 |
 | `SPEECH_RESOURCE_ID` | `volc.seedasr.auc_turbo` |
 | `BYTEPLUS_AK` / `BYTEPLUS_SK` | 具有 TOS 任务前缀权限的服务端私有凭据 |
+| `STORAGE_BACKEND` | `tos` |
 | `TOS_REGION` | `ap-southeast-1` |
-| `TOS_BUCKET` | 自己的私有桶 |
+| `TOS_BUCKET` | `movie-novel`，需在自己账户中创建私有桶 |
 | `TOS_ENDPOINT` | `https://tos-ap-southeast-1.bytepluses.com` |
 
-主 Agent 负责讨论、背景、人物侧写、大纲和信息补全；所选剧本模型负责章节规划、正文、连续性摘要和分镜。`SCRIPT_LLM_TEMPERATURE` 默认 `0.9`，用于讨论与创作，连续性摘要使用 `0.2`。网页通过 `/api/models` 自动读取模型名称、输出上限、篇幅范围及默认值、语音功能可用状态，不返回私有端点和密钥。实际输出能力、请求上限和内容限制以模型服务商为准。
+主 Agent 负责讨论、背景、人物侧写、大纲和信息补全；剧本模型负责章节规划、正文、连续性摘要和分镜，两者共用 `MAIN_AGENT_MODEL` 和 `MAIN_AGENT_MAX_TOKENS`。历史选择 `deepseek-1017`、`deepseek-0910`、`seed-sc-0215` 等自动映射到当前模型，旧 `SCRIPT_*_MODEL` 和 `SCRIPT_*_MAX_TOKENS` 变量不再使用。`SCRIPT_LLM_TEMPERATURE` 默认 `0.9`，用于讨论与创作，连续性摘要使用 `0.2`。网页通过 `/api/models` 自动读取模型名称、输出上限、篇幅范围及默认值、语音功能可用状态，不返回私有端点和密钥。视觉、视频端点为预留配置，当前 Web UI 不提供这些功能。实际输出能力、请求上限和内容限制以模型服务商为准。
 
 ## BytePlus veFaaS 部署
 
-函数使用 Python 3.12，启动命令为 `bash run_cloud.sh`；Linux Python 依赖放在 `vendor/`，Word 导出所需的 Linux Node.js 放在 `runtime/bin/`。通过服务端环境变量注入模型和语音参数、`ARK_API_KEY`、`WEBUI_CLOUD_MODE=true`、`WEBUI_ACCESS_PASSWORD`、保持稳定的随机 `WEBUI_SESSION_SECRET`，以及上述 TOS 配置和服务端 AK/SK。部署压缩包及 Git 不包含 `.env`、凭据或本地数据库。Seed-Speech 使用独立 API Key，AK/SK 仅在服务端用于访问 TOS。
+函数使用 Python 3.12，启动命令为 `bash run_cloud.sh`；Linux Python 依赖放在 `vendor/`，Word 导出所需的 Linux Node.js 放在 `runtime/bin/`。通过服务端环境变量注入模型和语音参数、`ARK_API_KEY`、`WEBUI_CLOUD_MODE=true`、`WEBUI_ACCESS_PASSWORD`、保持稳定的随机 `WEBUI_SESSION_SECRET`，以及上述 TOS 配置和服务端 AK/SK。部署压缩包排除 `.env`、凭据、本地数据库、`docs/` 和 `tests/`；`docs/` 仅保留本地，不上传 GitHub。Seed-Speech 使用独立 API Key，AK/SK 仅在服务端用于访问 TOS。
 
 `MinInstance` 和 `MaxInstance` 均设为 `1`。API 网关路由匹配 `/` 前缀并允许应用使用的 HTTP 方法。长文本生成使用函数超时 900 秒、API 网关路由超时 900,000 毫秒。
+
+应用生成请求使用 720 秒期限，预留保存和清理时间；聊天与正文流每 10 秒返回心跳。每个任务独立加锁，TOS 读写不占用全局任务锁；阻塞的存储、模型及导出工作在异步事件循环之外执行。断流清理先等待模型工作线程结束，再释放任务占用。
 
 云端页面、静态资源和 API 均需登录，本地模式不需要密码。TOS 的 `movieagent/v1/tasks/{浏览器}/{任务}/` 保存任务 JSON 和原始图片，`movieagent/v1/history/{浏览器}/` 保存每项任务的简要索引。桶保持私有；每次任务、图片和导出操作都验证签名浏览器身份。任务写入使用 ETag 条件校验及持久化请求占用标记，拒绝并发修改，不使用所有用户共用的可变索引。部署时保持会话签名密钥不变，已有浏览器身份才能继续有效。
 

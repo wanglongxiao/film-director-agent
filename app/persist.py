@@ -10,8 +10,9 @@ class Persist:
         self.store = store
 
     def save_task_state(self, task_id, state):
-        self.store.set_state(task_id, state)
-        self.store.flush(task_id)
+        with self.store.task_lock(task_id):
+            self.store.set_state(task_id, state)
+            self.store.flush(task_id)
 
     def save_image(self, task_id, episode_number, storyboard_index, shot, scene,
                    prompt, image_url, kind="", character_name=""):
@@ -30,14 +31,15 @@ class Persist:
                         raise ValueError("Image exceeds 20 MB")
                 self.cache_image(image_id, bytes(data))
             row["image_url"] = f"/api/sessions/{task_id}/images/{image_id.split('.')[1]}"
-        with self.store._lock:
+        with self.store.task_lock(task_id):
             self.store._sessions[task_id]["doc"]["images"].append(row)
             self.store.flush(task_id)
         return row["image_url"]
 
     def image_key(self, image_id):
         sid, iid = image_id.split(".")
-        owner = self.store._sessions[sid]["doc"]["owner"]
+        with self.store.task_lock(sid):
+            owner = self.store._sessions[sid]["doc"]["owner"]
         return f"movieagent/v1/tasks/{owner}/{sid}/images/{iid}"
 
     def cache_image(self, image_id, data):
@@ -47,7 +49,7 @@ class Persist:
         return self.store.storage.get(self.image_key(task_id + "." + image_id))[0]
 
     def get_images(self, task_id, with_blobs=True):
-        with self.store._lock:
+        with self.store.task_lock(task_id):
             rows = [dict(r) for r in self.store._sessions[task_id]["doc"]["images"]]
         if with_blobs:
             for row in rows:

@@ -21,7 +21,7 @@ MAX_RETRIES = 4
 _RETRY_STATUS = {429, 500, 502, 503, 504}
 
 
-def generate_image(prompt: str, size: Optional[str] = None, timeout: int = 180) -> str:
+def generate_image(prompt: str, size: Optional[str] = None, timeout: int = 180, deadline=None) -> str:
     """Generate an image from a prompt; returns the resulting image URL.
 
     ``size`` defaults to the configured IMAGE_SIZE (4:3 unless overridden in .env).
@@ -41,7 +41,10 @@ def generate_image(prompt: str, size: Optional[str] = None, timeout: int = 180) 
 
     last_exc: Optional[Exception] = None
     for attempt in range(MAX_RETRIES + 1):
-        resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
+        remaining = (deadline - time.monotonic()) if deadline is not None else timeout + 5
+        if remaining <= 5:
+            raise TimeoutError("Image request time limit reached.")
+        resp = requests.post(url, headers=headers, json=payload, timeout=min(timeout, remaining - 5))
         if resp.status_code in _RETRY_STATUS and attempt < MAX_RETRIES:
             # Honor Retry-After when present, else exponential backoff + jitter.
             retry_after = resp.headers.get("Retry-After")
@@ -49,6 +52,8 @@ def generate_image(prompt: str, size: Optional[str] = None, timeout: int = 180) 
                 delay = float(retry_after)
             else:
                 delay = min(30.0, (2 ** attempt)) + random.uniform(0, 0.5)
+            if deadline is not None and time.monotonic() + delay + 5 >= deadline:
+                raise TimeoutError("Image request time limit reached.")
             time.sleep(delay)
             last_exc = requests.HTTPError(f"{resp.status_code} (retrying)")
             continue
@@ -68,6 +73,7 @@ def generate_images(
     timeout: int = 180,
     max_workers: int = MAX_CONCURRENCY,
     on_error: Optional[Callable[[int, Exception], str]] = None,
+    deadline=None,
 ) -> list[str]:
     """Generate multiple images in parallel (max concurrency 10).
 
@@ -82,7 +88,7 @@ def generate_images(
 
     def _one(idx: int, prompt: str) -> str:
         try:
-            return generate_image(prompt, size=size, timeout=timeout)
+            return generate_image(prompt, size=size, timeout=timeout, deadline=deadline)
         except Exception as exc:  # noqa: BLE001
             if on_error is not None:
                 return on_error(idx, exc)

@@ -5,6 +5,7 @@ import threading
 import time
 import uuid
 import copy
+import weakref
 from typing import Callable, Optional
 
 from .schemas import Episode, SessionState
@@ -15,13 +16,23 @@ from .model_output import display_history
 class SessionStore:
     def __init__(self) -> None:
         self._lock = threading.RLock()
+        self._task_locks = weakref.WeakValueDictionary()
         self.storage = Storage()
         self._active_tokens: dict[str, str] = {}
         self._sessions: dict[str, dict] = {}  # sid -> {"state", "history", "last_seen", "cancel"}
 
+    def task_lock(self, sid: str):
+        """Share a reentrant lock only among requests for the same task."""
+        with self._lock:
+            lock = self._task_locks.get(sid)
+            if lock is None:
+                lock = threading.RLock()
+                self._task_locks[sid] = lock
+            return lock
+
     def create(self, language: str = "zh-CN", owner: str = "") -> str:
         sid = uuid.uuid4().hex
-        with self._lock:
+        with self.task_lock(sid):
             self._sessions[sid] = {
                 "state": SessionState(language=language),
                 "history": [],
@@ -39,7 +50,7 @@ class SessionStore:
         return sid
 
     def load_owned(self, owner: str, sid: str) -> bool:
-        with self._lock:
+        with self.task_lock(sid):
             cached = self._sessions.get(sid)
             if cached and cached["doc"]["owner"] != owner:
                 return False
@@ -56,7 +67,7 @@ class SessionStore:
             return True
 
     def flush(self, sid: str) -> None:
-        with self._lock:
+        with self.task_lock(sid):
             item = self._sessions[sid]
             doc = item["doc"]
             doc["state"] = item["state"].model_dump(mode="json")
@@ -64,7 +75,7 @@ class SessionStore:
             item["etag"] = self.storage.save(doc, item["etag"])
 
     def claim(self, sid: str, operation: str) -> str:
-        with self._lock:
+        with self.task_lock(sid):
             if sid in self._active_tokens:
                 raise Conflict("正文生成中，请勿重复提交。")
             item = self._sessions[sid]
@@ -85,7 +96,7 @@ class SessionStore:
             return token
 
     def release(self, sid: str, token: str) -> None:
-        with self._lock:
+        with self.task_lock(sid):
             if self._active_tokens.get(sid) == token:
                 self._active_tokens.pop(sid, None)
             item = self._sessions.get(sid)
@@ -105,18 +116,18 @@ class SessionStore:
                     self._sessions.pop(sid, None)
 
     def set_auto_run(self, sid: str, value: bool):
-        with self._lock:
+        with self.task_lock(sid):
             self._sessions[sid]["doc"]["auto_run"] = value
             self.flush(sid)
 
     def fail_novel(self, sid: str, error: str):
-        with self._lock:
+        with self.task_lock(sid):
             self._sessions[sid]["doc"]["auto_run"] = False
             self._sessions[sid]["doc"]["last_error"] = error
             self.flush(sid)
 
     def public(self, sid: str) -> dict:
-        with self._lock:
+        with self.task_lock(sid):
             item = self._sessions[sid]
             doc = item["doc"]
             job = doc.get("job")
@@ -125,25 +136,25 @@ class SessionStore:
                     "status": doc.get("status", "idle"), "last_error": doc.get("last_error")}
 
     def get(self, sid: str) -> Optional[dict]:
-        with self._lock:
+        with self.task_lock(sid):
             item = self._sessions.get(sid)
             if item is None:
                 return None
             return {
                 "state": item["state"].model_copy(deep=True),
-                "history": list(item["history"]),
+                "history": copy.deepcopy(item["history"]),
             }
 
     def exists(self, sid: str) -> bool:
-        with self._lock:
+        with self.task_lock(sid):
             return sid in self._sessions
 
     def set_state(self, sid: str, state: SessionState) -> None:
-        with self._lock:
+        with self.task_lock(sid):
             self._sessions[sid]["state"] = state.model_copy(deep=True)
 
     def set_model(self, sid: str, text_model: str) -> SessionState | None:
-        with self._lock:
+        with self.task_lock(sid):
             item = self._sessions.get(sid)
             if item is None or item["novel_busy"]:
                 return None
@@ -151,18 +162,18 @@ class SessionStore:
             return item["state"].model_copy(deep=True)
 
     def add_history(self, sid: str, role: str, content: str) -> None:
-        with self._lock:
+        with self.task_lock(sid):
             self._sessions[sid]["history"].append({"role": role, "content": content})
 
     def add_episode(self, sid: str, episode: Episode) -> None:
-        with self._lock:
+        with self.task_lock(sid):
             episodes = self._sessions[sid]["state"].episodes
             episodes[:] = [e for e in episodes if e.number != episode.number]
             episodes.append(episode)
             episodes.sort(key=lambda e: e.number)
 
     def begin_novel(self, sid: str) -> bool:
-        with self._lock:
+        with self.task_lock(sid):
             item = self._sessions.get(sid)
             if item is None or item["novel_busy"]:
                 return False
@@ -172,14 +183,14 @@ class SessionStore:
             return True
 
     def novel_cancel_event(self, sid: str) -> threading.Event:
-        with self._lock:
+        with self.task_lock(sid):
             return self._sessions[sid]["novel_cancel"]
 
     def save_novel_state(
         self, sid: str, state: SessionState, cancel_event: threading.Event,
         persist_state: Callable[[str, SessionState], None],
     ) -> bool:
-        with self._lock:
+        with self.task_lock(sid):
             item = self._sessions.get(sid)
             if not item or item["novel_cancel"] is not cancel_event or cancel_event.is_set():
                 return False
@@ -190,22 +201,22 @@ class SessionStore:
             return True
 
     def end_novel(self, sid: str, cancel_event: threading.Event | None = None) -> None:
-        with self._lock:
+        with self.task_lock(sid):
             item = self._sessions.get(sid)
             if item and (cancel_event is None or item["novel_cancel"] is cancel_event):
                 item["novel_busy"] = False
 
     def novel_busy(self, sid: str) -> bool:
-        with self._lock:
+        with self.task_lock(sid):
             return bool(self._sessions.get(sid, {}).get("novel_busy"))
 
     def touch(self, sid: str) -> None:
-        with self._lock:
+        with self.task_lock(sid):
             if sid in self._sessions:
                 self._sessions[sid]["last_seen"] = time.time()
 
     def set_cancel(self, sid: str, value: bool) -> None:
-        with self._lock:
+        with self.task_lock(sid):
             if sid in self._sessions:
                 item = self._sessions[sid]
                 item["cancel"] = bool(value)
@@ -217,12 +228,12 @@ class SessionStore:
                     self.flush(sid)
 
     def is_cancel(self, sid: str) -> bool:
-        with self._lock:
+        with self.task_lock(sid):
             return bool(self._sessions.get(sid, {}).get("cancel", False))
 
     def delete(self, sid: str) -> None:
         """Explicitly remove a task and its private objects."""
-        with self._lock:
+        with self.task_lock(sid):
             item = self._sessions.get(sid)
             if item:
                 self.storage.remove(item["doc"]["owner"], sid)
@@ -231,11 +242,8 @@ class SessionStore:
     def sweep(self, max_age_seconds: int = 600) -> None:
         """Remove sessions not seen for max_age_seconds (disconnected-window fallback)."""
         now = time.time()
-        with self._lock:
-            stale = [
-                sid
-                for sid, item in self._sessions.items()
-                if now - item.get("last_seen", 0) > max_age_seconds and not item["doc"].get("job")
-            ]
-            for sid in stale:
-                self._sessions.pop(sid, None)
+        for sid in list(self._sessions):
+            with self.task_lock(sid):
+                item = self._sessions.get(sid)
+                if item and now - item.get("last_seen", 0) > max_age_seconds and not item["doc"].get("job"):
+                    self._sessions.pop(sid, None)

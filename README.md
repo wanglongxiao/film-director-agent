@@ -6,7 +6,7 @@ A streaming writing app that turns a story idea into character profiles, a compl
 
 ## Demo
 
-[Open Demo Site](https://sh0o6o11ievepvnqcjrvg.apigateway-ap-southeast-1.apigw-byteplus.com/)
+[Open Demo Site](https://s07fjlv47sa8mvi5sqo72.apigateway-ap-southeast-1.apigw-byteplus.com/)
 
 The cloud demo requires an access password.
 
@@ -18,7 +18,7 @@ The video shows an earlier version; the current app also supports full manuscrip
 
 - Discuss the background, characters, outline, film format, style, and age rating.
 - Set a distinct work title during discussion; use it for the manuscript, history and Word export. Older untitled scripts recover a name from their saved discussion or story details without changing chapters.
-- Choose `deepseek-1017` (default) or `seed-sc-0215` for writing, independently of the main agent.
+- Use `deepseek-v4.1-flash-off` for discussion and writing, with thinking disabled and a 65,536-token output budget.
 - Plan 1–120 chapters, then automatically write one chapter per HTTP request. Each chapter is saved before the browser requests the next.
 - Export Word in this order: centered title cover, background, character profiles with portraits, chapter index, then full prose. Each part and each chapter starts on a new page.
 - Generate 4:3 character and scene reference images, with up to 10 concurrent requests and retries for transient failures.
@@ -51,13 +51,11 @@ Keys and endpoint IDs stay on the server. `.env.example` leaves these fields emp
 | --- | --- |
 | `ARK_API_KEY` | Your private key; never commit it |
 | `LLM_BASE_URL` | `https://ark.ap-southeast.bytepluses.com/api/v3` |
-| `MAIN_AGENT_MODEL` | Your main agent endpoint |
-| `MAIN_AGENT_MAX_TOKENS` | `300000` |
-| `SCRIPT_DEEPSEEK_1017_MODEL` | Your DeepSeek endpoint |
-| `SCRIPT_DEEPSEEK_1017_MAX_TOKENS` | `200000` |
-| `SCRIPT_SEED_SC_0215_MODEL` | Your Seed endpoint |
-| `SCRIPT_SEED_SC_0215_MAX_TOKENS` | `32000` |
-| `LLM_MODEL_IMAGE` | Your Seedream endpoint |
+| `MAIN_AGENT_MODEL` | Your `deepseek-v4.1-flash-off` endpoint, used for discussion and writing |
+| `MAIN_AGENT_MAX_TOKENS` | `65536` |
+| `LLM_MODEL_IMAGE` | Your `seedream-5.0-flash` endpoint |
+| `VISION_REVIEW_MODEL` | Your `seed-2.1-turbo-off` endpoint; reserved for vision review |
+| `VIDEO_MODEL` | Your `seedance-2.5-off` endpoint; reserved for video generation |
 | `IMAGE_SIZE` | `2048x1536` (4:3) |
 | `SCRIPT_LLM_TEMPERATURE` | `0.9` |
 | `SPEECH_API_KEY` | Private Seed-Speech API key |
@@ -65,17 +63,20 @@ Keys and endpoint IDs stay on the server. `.env.example` leaves these fields emp
 | `SPEECH_ASR_URL` | Separate Seed-Speech API domain |
 | `SPEECH_RESOURCE_ID` | `volc.seedasr.auc_turbo` |
 | `BYTEPLUS_AK` / `BYTEPLUS_SK` | Private server credentials with access to the TOS task prefix |
+| `STORAGE_BACKEND` | `tos` |
 | `TOS_REGION` | `ap-southeast-1` |
-| `TOS_BUCKET` | Your private bucket |
+| `TOS_BUCKET` | `movie-novel`; create a private bucket in your own account |
 | `TOS_ENDPOINT` | `https://tos-ap-southeast-1.bytepluses.com` |
 
-The main agent handles discussion and story setup. The selected writer handles chapter plans, prose, summaries, and storyboards. `SCRIPT_LLM_TEMPERATURE` defaults to `0.9` for discussion and writing; continuity summaries use `0.2`. `/api/models` supplies model names, output budgets, generation limits and defaults, and speech availability, without private endpoints or keys. Actual output limits and available content depend on the model provider.
+The main agent handles discussion and story setup; the writer handles chapter plans, prose, summaries, and storyboards. Both use `MAIN_AGENT_MODEL` and `MAIN_AGENT_MAX_TOKENS`. Saved selections such as `deepseek-1017`, `deepseek-0910`, and `seed-sc-0215` map to the current model. Legacy `SCRIPT_*_MODEL` and `SCRIPT_*_MAX_TOKENS` variables are no longer used. `SCRIPT_LLM_TEMPERATURE` defaults to `0.9` for discussion and writing; continuity summaries use `0.2`. `/api/models` supplies model names, output budgets, generation limits and defaults, and speech availability, without private endpoints or keys. Vision and video endpoint settings are reserved; the current web UI does not offer those features. Actual output limits and available content depend on the model provider.
 
 ## BytePlus veFaaS
 
-Use `run_cloud.sh` as the function command (`bash run_cloud.sh`), with Python 3.12, Linux dependencies in `vendor/`, and Linux Node.js in `runtime/bin/` for Word export. Inject model and speech settings, `ARK_API_KEY`, `WEBUI_CLOUD_MODE=true`, `WEBUI_ACCESS_PASSWORD`, a stable random `WEBUI_SESSION_SECRET`, and the TOS settings and server credentials above through server environment variables. Keep `.env`, credentials and local databases out of the deployment archive and Git. Seed-Speech uses its own API key; AK/SK are used server-side for TOS.
+Use `run_cloud.sh` as the function command (`bash run_cloud.sh`), with Python 3.12, Linux dependencies in `vendor/`, and Linux Node.js in `runtime/bin/` for Word export. Inject model and speech settings, `ARK_API_KEY`, `WEBUI_CLOUD_MODE=true`, `WEBUI_ACCESS_PASSWORD`, a stable random `WEBUI_SESSION_SECRET`, and the TOS settings and server credentials above through server environment variables. Keep `.env`, credentials, local databases, `docs/` and `tests/` out of the deployment archive. `docs/` remains local and is not published to GitHub. Seed-Speech uses its own API key; AK/SK are used server-side for TOS.
 
 Set both `MinInstance` and `MaxInstance` to `1`. Bind an API gateway route with path prefix `/` and all app HTTP methods. For long generation requests, use a function timeout of 900 seconds and an API gateway route timeout of 900,000 milliseconds.
+
+Each generation request has a 720-second deadline, with time left for saving and cleanup. Chat and manuscript streams send heartbeats every 10 seconds. Each task has its own lock; TOS calls do not hold a global task lock. Blocking storage, model and export work runs outside the async event loop. Disconnect cleanup waits for the model worker before releasing its task lease.
 
 Cloud pages, static resources, and APIs require login; local mode has no password. TOS stores task JSON and original images below `movieagent/v1/tasks/{browser}/{task}/`, with a small per-task history summary under `movieagent/v1/history/{browser}/`. Bucket access stays private; the backend checks the signed browser identity before every task, image or export operation. Task writes use ETag conditions and a persisted request lease to reject concurrent edits. There is no shared mutable user index. Keep the session secret unchanged across deployments so existing browser cookies remain valid.
 

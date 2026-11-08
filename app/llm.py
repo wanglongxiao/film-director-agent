@@ -10,11 +10,8 @@ import config
 
 _client: Optional[OpenAI] = None
 
-# Set the deep-reasoning effort level to "low" for faster responses.
-# ModelArk deep-reasoning models accept a string `reasoning_effort` in the
-# request body (see docs.byteplus.com/en/docs/ModelArk/1449737 & 1494384).
-# Allowed values: minimal / low / medium / high / xhigh / max.
-_REASONING = {"reasoning_effort": "low"}
+# The configured flash-off endpoint is invoked with thinking disabled.
+_REASONING = {"thinking": {"type": "disabled"}}
 
 
 class OutputTruncatedError(ValueError):
@@ -24,7 +21,8 @@ class OutputTruncatedError(ValueError):
 def get_client(deadline: float | None = None) -> OpenAI:
     global _client
     if _client is None:
-        _client = OpenAI(base_url=config.LLM_BASE_URL, api_key=config.ARK_API_KEY)
+        _client = OpenAI(base_url=config.LLM_BASE_URL, api_key=config.ARK_API_KEY,
+                         timeout=120, max_retries=0)
     if deadline is not None:
         remaining = deadline - time.monotonic()
         if remaining <= 5:

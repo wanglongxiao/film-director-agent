@@ -50,7 +50,7 @@ const app = {
   novelBusy: false,
   exportBusy: false,
   stopRequest: null,
-  textModel: "deepseek-1017",
+  textModel: "deepseek-v4.1-flash-off",
   modelBusy: false,
   modelOptions: {},
   speechBusy: false,
@@ -356,7 +356,7 @@ function esc(s) {
 
 function renderProject(state) {
   app.state = state;
-  app.textModel = state.text_model || "deepseek-1017";
+  app.textModel = state.text_model || "deepseek-v4.1-flash-off";
   ui.textModel.value = app.textModel;
   if (!state.novel) {
     ui.chapterCount.value = state.writing.chapters_count;
